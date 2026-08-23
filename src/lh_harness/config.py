@@ -40,6 +40,7 @@ _RUN_KEYS = {
     "codex_mcp_config",
     "mcp_add_dirs",
     "guard_exclude_paths",
+    "guard_exclude_git",
     "max_rounds",
     "dashboard",
     "dashboard_port",
@@ -92,6 +93,12 @@ mcp_add_dirs = []
 # echoed at run start and recorded in each audited episode's metadata.
 # Passing --guard-exclude-path replaces this list rather than adding to it.
 guard_exclude_paths = []
+# Deliberately drop .git from audit snapshots. This is an audit blind spot --
+# hooks, refs and history become unwatched -- so it has its own named switch
+# instead of hiding in the list above. Meant for workspaces where concurrent
+# runs legitimately share one repository and every sibling commit would
+# otherwise invalidate an open audit window.
+# guard_exclude_git = true
 
 max_rounds = 25
 dashboard = true
@@ -212,6 +219,8 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
             raise ProjectConfigError("run.mcp_add_dirs must be an array of non-empty strings")
         defaults["mcp_add_dir"] = list(value)
+    if "guard_exclude_git" in run:
+        defaults["guard_exclude_git"] = _boolean(run["guard_exclude_git"], "run.guard_exclude_git")
     if "guard_exclude_paths" in run:
         value = run["guard_exclude_paths"]
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
