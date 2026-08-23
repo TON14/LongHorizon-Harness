@@ -70,17 +70,33 @@ def test_version_control_state_is_protected(tmp_path: Path, vcs_path: str) -> No
         _resolve_guard_exclude_paths([vcs_path], workspace=workspace, protected=())
 
 
-def test_harness_state_paths_are_protected(tmp_path: Path) -> None:
+def test_redundant_harness_state_exclusion_is_a_note_not_an_error(
+    tmp_path: Path, capsys
+) -> None:
     workspace = _workspace(tmp_path)
     run_dir = workspace / "runs" / "run-1"
 
-    # Excluding the harness path itself, or any parent that covers it, would
-    # hide the run's own control/state files from the guard.
-    for candidate in ("runs/run-1", "runs"):
-        with pytest.raises(ValueError, match="harness state"):
-            _resolve_guard_exclude_paths(
-                [candidate], workspace=workspace, protected=(run_dir,)
-            )
+    # Harness-owned paths are never snapshotted anyway, so naming one (or
+    # anything inside one) must not fail the run -- operators reasonably list
+    # .lh-harness for completeness.
+    resolved = _resolve_guard_exclude_paths(
+        ["runs/run-1", "runs/run-1/logs", "target"],
+        workspace=workspace,
+        protected=(run_dir,),
+    )
+
+    assert resolved == (str(workspace / "target"),)
+    assert "already skipped automatically" in capsys.readouterr().err
+
+
+def test_exclusion_covering_harness_state_and_more_is_rejected(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    run_dir = workspace / "runs" / "run-1"
+
+    # "runs" holds run-1 *and* whatever else lands there: wider than the
+    # harness state it hides, so it is a real hole, not redundancy.
+    with pytest.raises(ValueError, match="harness state"):
+        _resolve_guard_exclude_paths(["runs"], workspace=workspace, protected=(run_dir,))
 
 
 def test_sibling_of_harness_state_is_allowed(tmp_path: Path) -> None:
