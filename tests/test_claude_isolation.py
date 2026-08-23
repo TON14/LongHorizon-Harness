@@ -55,14 +55,16 @@ def test_without_opt_in_no_isolation_flags_appear(tmp_path):
 # --- bare isolation ----------------------------------------------------------
 
 
-def test_isolation_alone_is_bare_with_no_skills(tmp_path):
+def test_isolation_alone_drops_the_account_layer_only(tmp_path):
     adapter = ClaudeCodeAdapter(
         workspace_path=str(tmp_path), prompt_dir=str(tmp_path / "p"), isolation=True
     )
     idx = adapter.argv.index("--setting-sources")
     assert adapter.argv[idx + 1] == "project"
-    assert "--disable-slash-commands" in adapter.argv
     assert "--plugin-dir" not in adapter.argv
+    # The CLI's built-in skills are not the operator's toolbox; isolation must
+    # not disable them.
+    assert "--disable-slash-commands" not in adapter.argv
 
 
 def test_allow_lists_imply_isolation(tmp_path, monkeypatch):

@@ -121,10 +121,11 @@ class ClaudeCodeAdapter(CommandAgentAdapter):
                 plugin_dirs.append(skills_plugin)
             for plugin_dir in plugin_dirs:
                 argv.extend(["--plugin-dir", plugin_dir])
-            if not plugin_dirs:
-                # Nothing was re-admitted, so no skill should resolve even if
-                # explicitly named in task text.
-                argv.append("--disable-slash-commands")
+            # Deliberately no --disable-slash-commands: isolation removes the
+            # *operator account's* layer, and project-only setting sources
+            # already keep user skills from resolving. The CLI's own built-in
+            # skills ship identically for everyone and stay available, exactly
+            # like its built-in tools.
         deny_tools = [*policy.disallowed_tools, *path_deny_rules(hidden_paths)]
         if deny_tools:
             argv.append("--disallowedTools")
