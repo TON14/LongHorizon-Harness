@@ -615,6 +615,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Extra directory to expose to the agent. May be repeated.",
     )
     run_parser.add_argument(
+        "--guard-exclude-git",
+        action=argparse.BooleanOptionalAction,
+        default=run_default("guard_exclude_git", False),
+        help="Deliberately drop .git from the auditor guard's snapshots. This is an "
+        "audit blind spot (hooks, refs, history become unwatched); meant for "
+        "workspaces where concurrent runs legitimately share one repository.",
+    )
+    run_parser.add_argument(
         "--guard-exclude-path",
         action="append",
         # Repeatable options must default to None and be filled in after
@@ -1689,6 +1697,16 @@ def _run_command(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"Cannot start run: {exc}", file=sys.stderr)
         return 2
+    if getattr(args, "guard_exclude_git", False):
+        # The one exclusion the list form refuses, admitted only through its
+        # own named switch so the blind spot is a deliberate, visible line in
+        # the config -- and in this console record and every audit's metadata.
+        guard_exclude_paths = (*guard_exclude_paths, str(Path(workspace).resolve() / ".git"))
+        print(
+            "Guard: .git is EXCLUDED from audit snapshots by operator choice "
+            "(hooks/refs/history are unwatched).",
+            file=sys.stderr,
+        )
 
     print(f"Run id:    {run_id}")
     print(f"Run dir:   {run_dir.resolve()}")
@@ -2026,7 +2044,9 @@ def _resolve_guard_exclude_paths(
             # auditor git noise is already silenced via GIT_OPTIONAL_LOCKS=0.
             raise ValueError(
                 f"guard exclude path may not touch version-control state: {item!r} "
-                "(an unwatched .git would hide hook/history tampering from the audit)"
+                "(an unwatched .git would hide hook/history tampering from the audit; "
+                "if that is a deliberate trade-off, say so explicitly with "
+                "guard_exclude_git = true / --guard-exclude-git)"
             )
         already_hidden = next(
             (

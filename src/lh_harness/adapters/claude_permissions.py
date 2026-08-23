@@ -182,6 +182,7 @@ def workspace_snapshot_diff(
     deleted = sorted(before_paths - after_paths)
     changed: list[str] = []
     type_changed: list[str] = []
+    touched_dirs: list[str] = []
     for path in sorted(before_paths & after_paths):
         old = before.records[path]
         new = after.records[path]
@@ -189,8 +190,25 @@ def workspace_snapshot_diff(
             continue
         if old and new and old[0] != new[0]:
             type_changed.append(path)
+        elif old and new and old[0] == "dir" and old[:2] == new[:2]:
+            # Only the directory's mtime moved. Every child is manifested
+            # separately, so if none of them shows up in this diff the durable
+            # content is untouched -- what happened is a transient entry, most
+            # commonly a git lock file created and removed inside the window.
+            # Recorded (below) but not a mutation: invalidating audits over
+            # lock traffic teaches operators to ignore integrity failures.
+            touched_dirs.append(path)
         else:
             changed.append(path)
+    # A transient entry is only provably transient if the directory's real
+    # children are clean: when anything under a touched directory did change,
+    # the directory row rejoins the mutation list.
+    dirty = set(added) | set(deleted) | set(changed) | set(type_changed)
+    reinstated = [
+        d for d in touched_dirs if any(entry.startswith(d + "/") for entry in dirty)
+    ]
+    changed = sorted([*changed, *reinstated])
+    touched_dirs = [d for d in touched_dirs if d not in reinstated]
     return {
         "verifier_workspace_guard": True,
         "verifier_workspace_restore_on_mutation": True,
@@ -208,6 +226,7 @@ def workspace_snapshot_diff(
             "deleted": len(deleted),
             "type_changed": len(type_changed),
         },
+        "verifier_workspace_dir_mtime_only": touched_dirs[:100],
         "verifier_workspace_snapshot_errors": [*before.errors, *after.errors][:100],
     }
 

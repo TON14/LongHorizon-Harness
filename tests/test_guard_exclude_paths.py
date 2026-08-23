@@ -222,3 +222,54 @@ def test_run_parses_repeatable_options_without_inheriting_the_config(monkeypatch
     # A second call in the same process must not accumulate.
     assert cli.main(["run", "--task=t", "--guard-exclude-path=cli-guard"]) == 0
     assert captured[-1] == (["cli-guard"], ["cfg-dir"])
+
+
+# --- dir-mtime-only diffs and the explicit .git switch -----------------------
+
+
+def test_dir_mtime_only_change_is_a_note_not_a_mutation() -> None:
+    from lh_harness.adapters.claude_permissions import (
+        WorkspaceSnapshot,
+        workspace_snapshot_diff,
+    )
+
+    before = WorkspaceSnapshot(
+        records={".git": ("dir", 0o755, 100), ".git/HEAD": ("file", 0o644, 23, 5, "x")},
+        errors=(),
+    )
+    after = WorkspaceSnapshot(
+        # Same children, the directory's own mtime moved: a transient entry
+        # (git lock) came and went. Must not read as tampering.
+        records={".git": ("dir", 0o755, 999), ".git/HEAD": ("file", 0o644, 23, 5, "x")},
+        errors=(),
+    )
+    diff = workspace_snapshot_diff(before, after)
+    assert diff["verifier_workspace_mutation_detected"] is False
+    assert diff["verifier_workspace_dir_mtime_only"] == [".git"]
+
+
+def test_dir_mtime_change_with_dirty_children_stays_a_mutation() -> None:
+    from lh_harness.adapters.claude_permissions import (
+        WorkspaceSnapshot,
+        workspace_snapshot_diff,
+    )
+
+    before = WorkspaceSnapshot(
+        records={".git": ("dir", 0o755, 100), ".git/HEAD": ("file", 0o644, 23, 5, "x")},
+        errors=(),
+    )
+    after = WorkspaceSnapshot(
+        records={".git": ("dir", 0o755, 999), ".git/HEAD": ("file", 0o644, 23, 9, "y")},
+        errors=(),
+    )
+    diff = workspace_snapshot_diff(before, after)
+    assert diff["verifier_workspace_mutation_detected"] is True
+    assert ".git" in diff["verifier_workspace_mutations"]["changed"]
+    assert ".git/HEAD" in diff["verifier_workspace_mutations"]["changed"]
+    assert diff["verifier_workspace_dir_mtime_only"] == []
+
+
+def test_listing_git_still_points_at_the_named_switch(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    with pytest.raises(ValueError, match="guard_exclude_git"):
+        _resolve_guard_exclude_paths([".git"], workspace=workspace, protected=())
