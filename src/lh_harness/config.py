@@ -38,6 +38,9 @@ _RUN_KEYS = {
     "prompt_language",
     "claude_mcp_config",
     "codex_mcp_config",
+    "claude_isolation",
+    "claude_allowed_plugins",
+    "claude_allowed_skills",
     "mcp_add_dirs",
     "guard_exclude_paths",
     "max_rounds",
@@ -84,6 +87,14 @@ prompt_language = "en"
 # claude_mcp_config = "/path/to/mcp.json"
 # codex_mcp_config = "/path/to/mcp.toml"
 mcp_add_dirs = []
+
+# Start Claude Code agents without this account's own plugins, skills, hooks
+# and user-level CLAUDE.md (`--bare`), so an operator's toolbox cannot leak
+# into runs that never asked for it. The allow-lists re-admit exactly the
+# named installed plugins / user skills; naming anything implies isolation.
+# claude_isolation = true
+# claude_allowed_plugins = ["playwright"]
+# claude_allowed_skills = ["graphify"]
 
 # Build/cache directories the auditor read-only guard should not snapshot,
 # e.g. ["target", "node_modules", "build", ".venv"]. Agents can still read
@@ -207,6 +218,19 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
         defaults["dashboard"] = _boolean(run["dashboard"], "run.dashboard")
     if "dashboard_port" in run:
         defaults["dashboard_port"] = _port(run["dashboard_port"], "run.dashboard_port")
+    if "claude_isolation" in run:
+        defaults["claude_isolation"] = _boolean(run["claude_isolation"], "run.claude_isolation")
+    for key, dest in (
+        ("claude_allowed_plugins", "claude_allowed_plugin"),
+        ("claude_allowed_skills", "claude_allowed_skill"),
+    ):
+        if key in run:
+            value = run[key]
+            if not isinstance(value, list) or not all(
+                isinstance(item, str) and item for item in value
+            ):
+                raise ProjectConfigError(f"run.{key} must be an array of non-empty strings")
+            defaults[dest] = list(value)
     if "mcp_add_dirs" in run:
         value = run["mcp_add_dirs"]
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
