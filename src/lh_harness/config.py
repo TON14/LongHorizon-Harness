@@ -89,12 +89,14 @@ prompt_language = "en"
 mcp_add_dirs = []
 
 # Start Claude Code agents without this account's own plugins, skills, hooks
-# and user-level CLAUDE.md (`--bare`), so an operator's toolbox cannot leak
-# into runs that never asked for it. The allow-lists re-admit exactly the
-# named installed plugins / user skills; naming anything implies isolation.
+# and user-level CLAUDE.md, so an operator's toolbox cannot leak into runs
+# that never asked for it. The CLI's built-in skills stay available. The
+# allow-lists re-admit exactly the named installed plugins / user skills, and
+# naming anything implies isolation. To allow nothing, leave the lists out
+# entirely (or []): [""] is an empty *name* and is rejected at startup.
 # claude_isolation = true
-# claude_allowed_plugins = ["playwright"]
-# claude_allowed_skills = ["graphify"]
+# claude_allowed_plugins = ["<installed-plugin-name>"]
+# claude_allowed_skills = ["<skill-name>"]
 
 # Build/cache directories the auditor read-only guard should not snapshot,
 # e.g. ["target", "node_modules", "build", ".venv"]. Agents can still read
@@ -229,7 +231,12 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(value, list) or not all(
                 isinstance(item, str) and item for item in value
             ):
-                raise ProjectConfigError(f"run.{key} must be an array of non-empty strings")
+                # [""] is the natural but wrong spelling of "allow nothing",
+                # so the refusal must name the right one.
+                raise ProjectConfigError(
+                    f"run.{key} must be an array of non-empty names; "
+                    "to allow nothing, use [] or omit the key"
+                )
             defaults[dest] = list(value)
     if "mcp_add_dirs" in run:
         value = run["mcp_add_dirs"]
