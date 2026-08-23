@@ -2020,20 +2020,40 @@ def _resolve_guard_exclude_paths(
                 f"guard exclude path would disable the read-only guard entirely: {item!r}"
             )
         if ".git" in candidate.relative_to(workspace).parts:
+            # Exclusion switches off the witness, not the access: agents keep
+            # Bash over excluded paths, and unwatched .git means hooks, refs
+            # and history can be rewritten with no audit trace. Legitimate
+            # auditor git noise is already silenced via GIT_OPTIONAL_LOCKS=0.
             raise ValueError(
-                f"guard exclude path may not touch version-control state: {item!r}"
+                f"guard exclude path may not touch version-control state: {item!r} "
+                "(an unwatched .git would hide hook/history tampering from the audit)"
             )
-        clashing = next(
+        already_hidden = next(
             (
                 shielded
                 for shielded in protected_paths
-                if shielded.is_relative_to(candidate) or candidate.is_relative_to(shielded)
+                if candidate == shielded or candidate.is_relative_to(shielded)
             ),
+            None,
+        )
+        if already_hidden is not None:
+            # Harness-owned paths are never snapshotted in the first place, so
+            # listing one (or anything inside one) is redundancy, not a hole.
+            # Say so instead of failing the run over a harmless line.
+            print(
+                f"Note: guard exclude {item!r} is already skipped automatically "
+                f"(harness-owned: {already_hidden}); ignoring.",
+                file=sys.stderr,
+            )
+            continue
+        clashing = next(
+            (shielded for shielded in protected_paths if shielded.is_relative_to(candidate)),
             None,
         )
         if clashing is not None:
             raise ValueError(
-                f"guard exclude path may not cover harness state ({clashing}): {item!r}"
+                f"guard exclude path may not cover harness state and workspace "
+                f"content together ({clashing}): {item!r}"
             )
         value = str(candidate)
         if value not in resolved:
