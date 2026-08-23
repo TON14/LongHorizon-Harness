@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ..agent_logs import visible_output as extract_claude_visible_output
 from ..agent_registry import normalise_reasoning_effort
+from .claude_isolation import build_skills_plugin, resolve_plugin_dirs
 from .claude_permissions import (
     ClaudeRole,
     is_auditor_role,
@@ -40,8 +41,15 @@ class ClaudeCodeAdapter(CommandAgentAdapter):
         hidden_paths: tuple[str, ...] = (),
         guard_exclude_paths: tuple[str, ...] = (),
         reasoning_effort: str | None = None,
+        isolation: bool = False,
+        allowed_plugins: tuple[str, ...] = (),
+        allowed_skills: tuple[str, ...] = (),
     ) -> None:
         policy = policy_for_role(role)
+        # Naming what is allowed only makes sense against a clean slate, so a
+        # non-empty allow-list implies isolation rather than silently doing
+        # nothing without the boolean.
+        isolation = bool(isolation or allowed_plugins or allowed_skills)
         effort = normalise_reasoning_effort(reasoning_effort)
         env_overrides: dict[str, str] = {}
         if api_key:
@@ -96,6 +104,27 @@ class ClaudeCodeAdapter(CommandAgentAdapter):
             "--verbose",
             "--dangerously-skip-permissions",
         ]
+        if isolation:
+            # Project-only setting sources drop everything the *operator's
+            # account* accumulated -- user plugins, skills, hooks, user-level
+            # CLAUDE.md -- while keeping what the workspace repo itself
+            # declares, which the task may rely on. Not `--bare`: bare mode
+            # also skips the account's OAuth credentials, so every run without
+            # an explicit API key dies with "Not logged in".
+            argv.extend(["--setting-sources", "project"])
+            plugin_dirs = resolve_plugin_dirs(tuple(allowed_plugins))
+            skills_plugin = build_skills_plugin(
+                tuple(allowed_skills),
+                Path(prompt_dir).parent / "claude-allowed-skills",
+            )
+            if skills_plugin:
+                plugin_dirs.append(skills_plugin)
+            for plugin_dir in plugin_dirs:
+                argv.extend(["--plugin-dir", plugin_dir])
+            if not plugin_dirs:
+                # Nothing was re-admitted, so no skill should resolve even if
+                # explicitly named in task text.
+                argv.append("--disable-slash-commands")
         deny_tools = [*policy.disallowed_tools, *path_deny_rules(hidden_paths)]
         if deny_tools:
             argv.append("--disallowedTools")
@@ -112,6 +141,9 @@ class ClaudeCodeAdapter(CommandAgentAdapter):
         self.role = role
         self.policy = policy
         self.reasoning_effort = effort
+        self.isolation = isolation
+        self.allowed_plugins = tuple(allowed_plugins)
+        self.allowed_skills = tuple(allowed_skills)
         # Snapshot-only exclusions: unlike hidden_paths these are not denied
         # to the agent — the guard just refrains from walking directories that
         # legitimately churn (build outputs) during an audit window.

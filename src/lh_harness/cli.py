@@ -587,6 +587,28 @@ def main(argv: list[str] | None = None) -> int:
         "the installed computer-use plugin, which is loaded automatically otherwise.",
     )
     run_parser.add_argument(
+        "--claude-isolation",
+        action=argparse.BooleanOptionalAction,
+        default=run_default("claude_isolation", False),
+        help="Start Claude Code agents bare: without this account's plugins, skills, "
+        "hooks and user-level CLAUDE.md. Naming --claude-allowed-plugin/-skill "
+        "implies this.",
+    )
+    run_parser.add_argument(
+        "--claude-allowed-plugin",
+        action="append",
+        default=None,
+        help="Installed Claude Code plugin to re-admit into isolated agents "
+        "(name or name@marketplace). May be repeated; implies --claude-isolation.",
+    )
+    run_parser.add_argument(
+        "--claude-allowed-skill",
+        action="append",
+        default=None,
+        help="User-level Claude Code skill (~/.claude/skills/<name>) to re-admit into "
+        "isolated agents. May be repeated; implies --claude-isolation.",
+    )
+    run_parser.add_argument(
         "--mcp-add-dir",
         action="append",
         default=None,
@@ -1829,6 +1851,9 @@ def _run_command(args: argparse.Namespace) -> int:
                 hidden_paths=hidden_paths,
                 guard_exclude_paths=guard_exclude_paths,
                 reasoning_effort=effort,
+                claude_isolation=bool(getattr(args, "claude_isolation", False)),
+                claude_allowed_plugins=tuple(getattr(args, "claude_allowed_plugin", []) or ()),
+                claude_allowed_skills=tuple(getattr(args, "claude_allowed_skill", []) or ()),
             )
         return agent_cache[key]
 
@@ -1936,7 +1961,12 @@ def _outermost_paths(*paths: str | Path) -> tuple[str, ...]:
     return tuple(str(path) for path in kept)
 
 
-_REPEATABLE_RUN_OPTIONS = ("mcp_add_dir", "guard_exclude_path")
+_REPEATABLE_RUN_OPTIONS = (
+    "mcp_add_dir",
+    "guard_exclude_path",
+    "claude_allowed_plugin",
+    "claude_allowed_skill",
+)
 
 
 def _apply_repeatable_defaults(args: argparse.Namespace, run_defaults: dict[str, object]) -> None:
@@ -2275,6 +2305,9 @@ def _build_agent(
     hidden_paths: tuple[str, ...] = (),
     guard_exclude_paths: tuple[str, ...] = (),
     reasoning_effort: str | None = None,
+    claude_isolation: bool = False,
+    claude_allowed_plugins: tuple[str, ...] = (),
+    claude_allowed_skills: tuple[str, ...] = (),
 ):
     if name == "codex":
         from .adapters.codex import CodexAdapter
@@ -2308,6 +2341,9 @@ def _build_agent(
             # exclusions are a Claude-Code-only concern for now.
             guard_exclude_paths=guard_exclude_paths,
             reasoning_effort=reasoning_effort,
+            isolation=claude_isolation,
+            allowed_plugins=claude_allowed_plugins,
+            allowed_skills=claude_allowed_skills,
         )
         if model is not None:
             kwargs["model"] = model
