@@ -105,8 +105,8 @@ LongHorizon-Harness is not tied to a specific model or agent backend. Existing m
 
 | | Layer | Supported choices |
 |---|---|---|
-| 🧠 | **Models** | Claude, GPT, Qwen, and other models exposed by an agent backend |
-| 🤖 | **Agent backends** | Claude Code, Codex CLI, OpenCode, DeepSeek Harness (`dsh`, CLI-only in phase 1), and custom `AgentAdapter` implementations |
+| 🧠 | **Models** | Claude, GPT, GLM, Qwen, and other models exposed by an agent backend |
+| 🤖 | **Agent backends** | Claude Code, Codex CLI, OpenCode, DeepSeek Harness (`dsh`, CLI-only in phase 1), ZCode, and custom `AgentAdapter` implementations |
 | 🎛️ | **Role assignment** | The Manager, Executor, and Auditor can each use a different model or backend |
 | 🖥️ | **Execution environments** | Local, with a pluggable `Environment` protocol |
 
@@ -516,6 +516,7 @@ lh-harness web --workspace-root .               # Serve the workbench for anothe
 | `--agent` | `claude_code`, `codex`, `opencode`, `deepseek_harness` (CLI-only in phase 1), or `zcode` |
 | `--env` | `local` |
 | `--max-rounds` | Maximum number of Manage-Execute-Audit rounds; the CLI default is 25 |
+| `--reasoning-effort` | Reasoning depth for every role (`low`/`high`/`max` for ZCode's GLM-5.x), overridable per role |
 | `--dashboard` | Start live monitoring and human intervention |
 | `--no-dashboard` | Disable a Dashboard enabled by the project configuration |
 
