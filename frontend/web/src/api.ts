@@ -141,7 +141,7 @@ export interface AgentChoice {
 export interface ReasoningSupport {
   supported: boolean;
   note?: string;
-  transport?: 'codex_config' | 'cli_flag';
+  transport?: 'codex_config' | 'cli_flag' | 'session_db';
   flag?: string;
   /** `per_model` means the choices follow the selected model, not the agent. */
   scope?: 'per_model' | 'per_agent';
