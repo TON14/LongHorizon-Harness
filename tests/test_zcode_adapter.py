@@ -40,6 +40,16 @@ def test_zcode_binary_environment_override() -> None:
     )
 
 
+def test_zcode_reasoning_is_declared_per_model() -> None:
+    from lh_harness.agent_registry import agent_spec, supports_reasoning_effort
+
+    spec = agent_spec("zcode")
+    assert supports_reasoning_effort("zcode") is True
+    assert spec.reasoning is not None
+    assert spec.reasoning.transport == "session_db"
+    assert spec.reasoning.declared_choices == ("low", "high", "max")
+
+
 def test_zcode_permission_modes_are_role_scoped() -> None:
     assert permission_mode_for_role("manager") == "plan"
     assert permission_mode_for_role("cli_auditor") == "plan"
@@ -52,11 +62,14 @@ def test_zcode_adapter_builds_runner_command_and_env(
 ) -> None:
     binary = str(tmp_path / "ZCode" / "zcode.cjs")
     monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: binary)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
 
     adapter = ZCodeAdapter(
         model="glm-5.3",
         api_key="sk-test",
-        prompt_dir="/tmp/run with spaces/prompts",
+        workspace_path=str(workspace),
+        prompt_dir=str(tmp_path / "run with spaces" / "prompts"),
         role="manager",
     )
 
@@ -65,9 +78,67 @@ def test_zcode_adapter_builds_runner_command_and_env(
     assert argv[argv.index("--binary") + 1] == binary
     assert argv[argv.index("--mode") + 1] == "plan"
     assert adapter.permission_mode == "plan"
+    # With a key in hand the provider rides in the project config, so the
+    # model must NOT also come from ZCODE_MODEL: the env-configured provider
+    # would win and silently drop the effort dial.
+    assert "ZCODE_MODEL" not in adapter.env
+    assert adapter.env["ZCODE_SESSION_DB_PATH"].endswith("zcode-db/session.db")
+    assert adapter.project_config == "created"
+    config = json.loads((workspace / ".zcode" / "config.json").read_text(encoding="utf-8"))
+    assert config["model"]["main"] == "zai/glm-5.3"
+    assert config["provider"]["zai"]["options"]["apiKey"] == "sk-test"
+    assert config["provider"]["zai"]["options"]["baseURL"] == "https://api.z.ai/api/anthropic"
+    assert config["provider"]["zai"]["models"] == {"glm-5.3": {}}
+
+
+def test_zcode_project_config_permissions_and_reuse(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    prompt_dir = tmp_path / "prompts"
+
+    first = ZCodeAdapter(
+        api_key="sk-test",
+        workspace_path=str(workspace),
+        prompt_dir=str(prompt_dir),
+    )
+    config_path = workspace / ".zcode" / "config.json"
+    assert oct(config_path.stat().st_mode & 0o777) == "0o600"
+    assert ".zcode" in first.hidden_paths
+
+    config_path.write_text('{"model": {"main": "custom/model"}}', encoding="utf-8")
+    second = ZCodeAdapter(
+        api_key="sk-test",
+        workspace_path=str(workspace),
+        prompt_dir=str(prompt_dir),
+    )
+    # The operator's own file is never overwritten.
+    assert second.project_config == "pre-existing"
+    assert "custom/model" in config_path.read_text(encoding="utf-8")
+    assert ".zcode" not in second.hidden_paths
+
+
+def test_zcode_adapter_falls_back_to_env_config_without_a_key(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    adapter = ZCodeAdapter(
+        workspace_path=str(workspace),
+        prompt_dir=str(tmp_path / "prompts"),
+    )
+
+    assert adapter.project_config == "env-configured"
+    assert not (workspace / ".zcode").exists()
     assert adapter.env["ZCODE_MODEL"] == "zai/glm-5.3"
     assert adapter.env["ZCODE_BASE_URL"] == "https://api.z.ai/api/anthropic"
-    assert adapter.env["ZCODE_API_KEY"] == "sk-test"
+    assert "ZCODE_SESSION_DB_PATH" in adapter.env
 
 
 def test_zcode_adapter_keeps_qualified_model_and_custom_endpoint(
@@ -79,18 +150,78 @@ def test_zcode_adapter_keeps_qualified_model_and_custom_endpoint(
     adapter = ZCodeAdapter(
         model="other/glm-5.3-flash",
         base_url="https://proxy.example.com/anthropic/",
+        workspace_path=str(tmp_path / "ws"),
+        prompt_dir=str(tmp_path / "prompts"),
         role="cli_executor",
     )
 
     assert adapter.env["ZCODE_MODEL"] == "other/glm-5.3-flash"
     assert adapter.env["ZCODE_BASE_URL"] == "https://proxy.example.com/anthropic"
-    assert "ZCODE_API_KEY" not in adapter.env
     assert adapter.permission_mode == "yolo"
 
 
-def test_zcode_adapter_rejects_reasoning_effort() -> None:
-    with pytest.raises(ValueError, match="does not accept a reasoning effort"):
-        ZCodeAdapter(reasoning_effort="high")
+def test_zcode_reasoning_effort_seeds_the_isolated_session_db(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
+
+    adapter = ZCodeAdapter(
+        api_key="sk-test",
+        workspace_path=str(tmp_path / "ws"),
+        prompt_dir=str(tmp_path / "prompts"),
+        reasoning_effort="high",
+    )
+
+    assert adapter.reasoning_effort == "high"
+    import sqlite3
+
+    connection = sqlite3.connect(adapter.env["ZCODE_SESSION_DB_PATH"])
+    try:
+        row = connection.execute(
+            "select value from local_setting where namespace='model' and key='reasoningLevel'"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert json.loads(row[0]) == {"level": "high"}
+
+    # Re-seeding the same store updates the level instead of failing.
+    ZCodeAdapter(
+        api_key="sk-test",
+        workspace_path=str(tmp_path / "ws"),
+        prompt_dir=str(tmp_path / "prompts"),
+        reasoning_effort="low",
+    )
+    connection = sqlite3.connect(adapter.env["ZCODE_SESSION_DB_PATH"])
+    try:
+        row = connection.execute(
+            "select value from local_setting where namespace='model' and key='reasoningLevel'"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert json.loads(row[0]) == {"level": "low"}
+
+
+def test_zcode_rejects_unknown_zai_effort_but_keeps_custom_providers(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
+
+    with pytest.raises(ValueError, match="low, high, max"):
+        ZCodeAdapter(
+            workspace_path=str(tmp_path / "ws"),
+            prompt_dir=str(tmp_path / "prompts"),
+            reasoning_effort="medium",
+        )
+    # A custom provider owns its own level names; the harness passes them on.
+    adapter = ZCodeAdapter(
+        model="other/glm-x",
+        workspace_path=str(tmp_path / "ws"),
+        prompt_dir=str(tmp_path / "prompts"),
+        reasoning_effort="medium",
+    )
+    assert adapter.reasoning_effort == "medium"
 
 
 def test_zcode_runner_parses_the_json_final_answer(
@@ -255,3 +386,10 @@ def test_web_meta_exposes_zcode_backend_and_default_model(
     assert agent["default_model"] == "glm-5.3"
     assert meta["models"]["zcode"][0]["id"] == "glm-5.3"
     assert meta["models"]["zcode"][1]["id"] == "glm-5.3-flash"
+    # The workbench offers the GLM-5.x reasoning dial for ZCode runs.
+    assert agent["reasoning"]["supported"] is True
+    assert [choice["id"] for choice in agent["reasoning"]["choices"]] == [
+        "low",
+        "high",
+        "max",
+    ]

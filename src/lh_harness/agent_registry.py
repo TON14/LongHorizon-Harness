@@ -46,7 +46,7 @@ class ReasoningSpec:
     the second case is verified.
     """
 
-    transport: Literal["codex_config", "cli_flag"]
+    transport: Literal["codex_config", "cli_flag", "session_db"]
     flag: str
     scope: Literal["per_model", "per_agent"]
     source: Literal["model_catalog", "cli_help", "declared"]
@@ -62,6 +62,12 @@ class AgentSpec:
     default_model: str
     capabilities: frozenset[str]
     reasoning: ReasoningSpec | None = None
+
+
+# The reasoning levels the GLM-5.x models expose through ZCode's `zai`
+# provider; the adapter pre-validates against this list because the CLI runs
+# at its default depth when a level does not match, without any error.
+ZCODE_EFFORT_LEVELS = ("low", "high", "max")
 
 
 AGENT_SPECS: tuple[AgentSpec, ...] = (
@@ -127,9 +133,18 @@ AGENT_SPECS: tuple[AgentSpec, ...] = (
         binary="zcode",
         default_model=DEFAULT_ZCODE_MODEL,
         capabilities=frozenset({"cli"}),
-        # Headless ZCode exposes no reasoning-effort switch; depth is chosen
-        # by model (e.g. glm-5.3 vs glm-5.3-flash), so effort is rejected.
-        reasoning=None,
+        reasoning=ReasoningSpec(
+            # Headless ZCode has no effort flag: the level lives in a
+            # `local_setting` row of its session database, which the adapter
+            # seeds in an isolated per-run copy. An unknown level is silently
+            # ignored by the CLI, so the adapter pre-validates the zai ones.
+            transport="session_db",
+            flag="reasoningLevel",
+            scope="per_model",
+            source="declared",
+            declared_choices=ZCODE_EFFORT_LEVELS,
+            validation="silently_ignored",
+        ),
     ),
 )
 

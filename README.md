@@ -276,6 +276,14 @@ lh-harness run --task @task.md --agent zcode --model glm-5.3 --no-dashboard
 
 Models reach ZCode as `zai/<model>` (a custom `provider/model` id passes through verbatim), and the endpoint is pinned to the Z.AI Anthropic-compatible API unless `--base-url` overrides it. Provide the key with `--api-key`, export `ZCODE_API_KEY` before starting the Web server, or log in once with `zcode login`; on a machine where the desktop app is already logged in, the harness reuses that key automatically.
 
+The reasoning effort (`low`, `high`, `max` for GLM-5.x models) follows the same per-role chain as every backend:
+
+```bash
+lh-harness run --task @task.md --agent zcode --model glm-5.3 --reasoning-effort high
+```
+
+Headless ZCode has no effort flag: the level lives in its session database, so the harness seeds an isolated per-run copy and never touches `~/.zcode`. The provider declaration that makes the level reach the request rides in a `.zcode/config.json` the harness writes into the workspace (mode 0600, never overwriting an existing file); with no key configured the run falls back to the environment-variable path and the effort dial is not applied.
+
 To make DeepSeek Harness the project default, put this in `./.lh-harness/config.toml`:
 
 ```toml

@@ -286,6 +286,14 @@ lh-harness run --task @task.md --agent zcode --model glm-5.3 --no-dashboard
 
 模型以 `zai/<model>` 形式传给 ZCode（自定义 `provider/model` ID 原样透传），端点默认指向 Z.AI 的 Anthropic 兼容 API，可用 `--base-url` 覆盖。密钥可通过 `--api-key` 提供，或在启动 Web 服务前导出 `ZCODE_API_KEY`，或先用 `zcode login` 登录；桌面版已登录的机器上，harness 会自动复用该密钥。
 
+思考深度（GLM-5.x 为 `low`、`high`、`max`）与其他后端一样按角色逐级生效：
+
+```bash
+lh-harness run --task @task.md --agent zcode --model glm-5.3 --reasoning-effort high
+```
+
+无头 ZCode 没有效果档位开关：档位保存在它的会话数据库里，因此 harness 会为每次运行播种一份隔离副本，绝不改动 `~/.zcode`。让档位真正到达请求所需的 provider 声明，由 harness 写入工作区内的 `.zcode/config.json`（权限 0600，且绝不覆盖已有文件）；未配置密钥时回退到环境变量路径，此时档位不会生效。
+
 之后就可以继续使用原来的 LongHorizon-Harness 命令：
 
 ```bash
