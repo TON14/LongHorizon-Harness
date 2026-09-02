@@ -106,8 +106,8 @@ LongHorizon-Harness 不绑定特定模型或 Agent 后端。现有模型和 Agen
 
 | | 层级 | 支持选项 |
 |---|---|---|
-| 🧠 | **模型** | Claude、GPT、Qwen，以及 Agent 后端提供的其他模型 |
-| 🤖 | **Agent 后端** | Claude Code、Codex CLI、OpenCode、DeepSeek Harness（`dsh`，第一阶段仅 CLI），以及自定义 `AgentAdapter` 实现 |
+| 🧠 | **模型** | Claude、GPT、GLM、Qwen，以及 Agent 后端提供的其他模型 |
+| 🤖 | **Agent 后端** | Claude Code、Codex CLI、OpenCode、DeepSeek Harness（`dsh`，第一阶段仅 CLI）、ZCode，以及自定义 `AgentAdapter` 实现 |
 | 🎛️ | **角色分配** | Manager、Executor 和 Auditor 可以分别使用不同模型或后端 |
 | 🖥️ | **执行环境** | 本地，并提供可扩展的 `Environment` 协议 |
 
@@ -517,6 +517,7 @@ lh-harness web --workspace-root .               # 为指定目录启动工作台
 | `--agent` | `claude_code`、`codex`、`opencode`、`deepseek_harness`（第一阶段仅 CLI）或 `zcode` |
 | `--env` | `local` |
 | `--max-rounds` | Manage-Execute-Audit 循环的最大轮数；CLI 默认为 25 |
+| `--reasoning-effort` | 所有角色的推理强度（ZCode 的 GLM-5.x 为 `low`/`high`/`max`），可按角色单独覆盖 |
 | `--dashboard` | 启动实时监控和人工介入功能 |
 | `--no-dashboard` | 关闭项目配置中默认启用的 Dashboard |
 
