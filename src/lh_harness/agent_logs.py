@@ -19,6 +19,7 @@ from typing import Any, Iterator
 CLAUDE_STREAM_JSON = "claude_stream_json"
 CODEX_EXEC_JSON = "codex_exec_json"
 DEEPSEEK_HARNESS_JSONL = "deepseek_harness_jsonl"
+ZCODE_RESULT_JSONL = "zcode_result_jsonl"
 OPENCODE_RUN_JSON = "opencode_run_json"
 # Untyped chat transcripts (one `{"role": ..., "content": ...}` object per line,
 # optionally wrapped in `message`). Neither CLI emits this directly, but saved
@@ -62,6 +63,8 @@ def detect_format(raw: str) -> str:
         record_type = record.get("type")
         if record_type == "dsh.result":
             return DEEPSEEK_HARNESS_JSONL
+        if record_type == "zcode.result":
+            return ZCODE_RESULT_JSONL
         if record_type in _CODEX_EVENTS:
             return CODEX_EXEC_JSON
         if record_type in _CLAUDE_EVENTS:
@@ -78,6 +81,9 @@ def visible_output(raw: str) -> str:
     log_format = detect_format(raw)
     if log_format == DEEPSEEK_HARNESS_JSONL:
         texts = _deepseek_assistant_texts(raw)
+        return texts[-1].strip() if texts else ""
+    if log_format == ZCODE_RESULT_JSONL:
+        texts = _zcode_assistant_texts(raw)
         return texts[-1].strip() if texts else ""
     if log_format == CODEX_EXEC_JSON:
         texts = _codex_assistant_texts(raw)
@@ -101,6 +107,8 @@ def assistant_texts(raw: str) -> list[str]:
     log_format = detect_format(raw)
     if log_format == DEEPSEEK_HARNESS_JSONL:
         return _deepseek_assistant_texts(raw)
+    if log_format == ZCODE_RESULT_JSONL:
+        return _zcode_assistant_texts(raw)
     if log_format == CODEX_EXEC_JSON:
         return _codex_assistant_texts(raw)
     if log_format == CLAUDE_STREAM_JSON:
@@ -135,6 +143,12 @@ def tool_output_view(raw: str) -> str:
             continue
         if log_format == DEEPSEEK_HARNESS_JSONL:
             if record.get("type") != "dsh.result" or not record.get("is_error"):
+                continue
+            text = record.get("error") or record.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+        elif log_format == ZCODE_RESULT_JSONL:
+            if record.get("type") != "zcode.result" or not record.get("is_error"):
                 continue
             text = record.get("error") or record.get("text")
             if isinstance(text, str) and text.strip():
@@ -181,6 +195,11 @@ def runtime_event_view(raw: str) -> str:
                 continue
             detail = record.get("error") or record.get("text") or "DeepSeek Harness failed"
             parts.append(f"response.failed: {detail}")
+        elif log_format == ZCODE_RESULT_JSONL:
+            if record_type != "zcode.result" or not record.get("is_error"):
+                continue
+            detail = record.get("error") or record.get("text") or "ZCode failed"
+            parts.append(f"response.failed: {detail}")
         elif log_format == CODEX_EXEC_JSON:
             if record_type == "turn.failed":
                 error = record.get("error")
@@ -209,6 +228,8 @@ def parse_trajectory(raw: str, *, max_steps: int | None = None) -> list[dict[str
     log_format = detect_format(raw)
     if log_format == DEEPSEEK_HARNESS_JSONL:
         return _deepseek_trajectory(raw, max_steps=bounded_steps)
+    if log_format == ZCODE_RESULT_JSONL:
+        return _zcode_trajectory(raw, max_steps=bounded_steps)
     if log_format == CODEX_EXEC_JSON:
         return _codex_trajectory(raw, max_steps=bounded_steps)
     if log_format == CLAUDE_STREAM_JSON:
@@ -261,6 +282,44 @@ def _deepseek_trajectory(
 # ----------------------------------------------------------------------------
 # Codex (`codex exec --json`)
 # ----------------------------------------------------------------------------
+
+
+def _zcode_assistant_texts(raw: str) -> list[str]:
+    texts: list[str] = []
+    for record in _json_records(raw):
+        if record.get("type") != "zcode.result":
+            continue
+        text = record.get("text")
+        if isinstance(text, str) and text.strip():
+            texts.append(text)
+    return texts
+
+
+def _zcode_trajectory(
+    raw: str,
+    *,
+    max_steps: int | None = None,
+) -> list[dict[str, Any]]:
+    steps: deque[dict[str, Any]] = deque(maxlen=max_steps)
+    for record in _json_records(raw):
+        if record.get("type") != "zcode.result":
+            continue
+        step: dict[str, Any] = {
+            "kind": "result",
+            "text": record.get("text") if isinstance(record.get("text"), str) else "",
+            "is_error": bool(record.get("is_error")),
+        }
+        if isinstance(record.get("exit_code"), int):
+            step["exit_code"] = record["exit_code"]
+        if isinstance(record.get("error"), str) and record["error"].strip():
+            step["error"] = record["error"].strip()
+        if isinstance(record.get("session_id"), str) and record["session_id"]:
+            step["session_id"] = record["session_id"]
+        usage = record.get("usage")
+        if isinstance(usage, dict):
+            step["usage"] = usage
+        steps.append(step)
+    return list(steps)
 
 
 def _codex_assistant_texts(raw: str) -> list[str]:

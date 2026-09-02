@@ -33,12 +33,14 @@ from .types import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_DEEPSEEK_HARNESS_MODEL,
     DEFAULT_OPENCODE_MODEL,
+    DEFAULT_ZCODE_MODEL,
 )
 from .utils.agent_cli import (
     is_agent_binary_available,
     resolve_codex_binary,
     resolve_dsh_binary,
     resolve_opencode_binary,
+    resolve_zcode_binary,
 )
 
 _CACHE_TTL_SECONDS = 30.0
@@ -58,6 +60,7 @@ def discover_model_catalog(
     codex_binary: str | None | object = _UNSET,
     dsh_binary: str | None | object = _UNSET,
     opencode_binary: str | None | object = _UNSET,
+    zcode_binary: str | None | object = _UNSET,
 ) -> dict[str, Any]:
     """Return agent/model choices plus honest discovery provenance.
 
@@ -81,12 +84,18 @@ def discover_model_catalog(
     )
     if resolved_opencode_binary is not None and not isinstance(resolved_opencode_binary, str):
         raise TypeError("opencode_binary must be a string or None")
+    resolved_zcode_binary = (
+        resolve_zcode_binary() if zcode_binary is _UNSET else zcode_binary
+    )
+    if resolved_zcode_binary is not None and not isinstance(resolved_zcode_binary, str):
+        raise TypeError("zcode_binary must be a string or None")
     claude_binary = shutil.which("claude")
     cache_key = (
         resolved_codex_binary or "",
         claude_binary or "",
         resolved_dsh_binary or "",
         resolved_opencode_binary or "",
+        resolved_zcode_binary or "",
     )
     with _cache_lock:
         if (
@@ -106,23 +115,27 @@ def discover_model_catalog(
         opencode_models, opencode_discovery = _discover_opencode_models(
             resolved_opencode_binary
         )
+        zcode_models, zcode_discovery = _discover_zcode_models(resolved_zcode_binary)
         models_by_agent = {
             "codex": codex_models,
             "claude_code": claude_models,
             "deepseek_harness": deepseek_models,
             "opencode": opencode_models,
+            "zcode": zcode_models,
         }
         discovery_by_agent = {
             "codex": codex_discovery,
             "claude_code": claude_discovery,
             "deepseek_harness": deepseek_discovery,
             "opencode": opencode_discovery,
+            "zcode": zcode_discovery,
         }
         resolved_binaries = {
             "codex": resolved_codex_binary,
             "claude_code": claude_binary,
             "deepseek_harness": resolved_dsh_binary,
             "opencode": resolved_opencode_binary,
+            "zcode": resolved_zcode_binary,
         }
         probes = probe_agents(force=force, binaries=resolved_binaries)
         agents: list[dict[str, Any]] = []
@@ -284,6 +297,25 @@ def _discover_opencode_models(
             "OpenCode 未提供稳定的账号级模型列表；可使用默认模型或输入端点暴露的自定义模型 ID。"
             if available
             else "未找到 OpenCode CLI（opencode）。"
+        ),
+    }
+
+
+def _discover_zcode_models(binary: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    models = [
+        _model_entry(DEFAULT_ZCODE_MODEL, "GLM-5.3 · default", "suggested"),
+        _model_entry("glm-5.3-flash", "GLM-5.3 Flash", "suggested"),
+    ]
+    available = is_agent_binary_available(binary)
+    return models, {
+        "status": "suggested" if available else "unavailable",
+        "source": "zcode_default",
+        "account_scoped": False,
+        "refreshed_at": None,
+        "warning": (
+            "ZCode 未提供稳定的账号级模型列表；可使用默认模型或输入 Z.AI 暴露的自定义模型 ID。"
+            if available
+            else "未找到 ZCode headless 运行时（zcode）。"
         ),
     }
 

@@ -36,6 +36,7 @@ LongHorizon-Harness turns existing agents into long-running computer-use systems
 
 ## ✨ News
 
+- **ZCode support.** LongHorizon-Harness can now run the ZCode CLI headlessly as `--agent zcode`, with role-scoped permission modes (`plan` for the Manager and auditors, `yolo` for executors), Z.AI endpoint/API-key configuration, normalized JSON results, and CLI/config/doctor integration. The Web workbench offers ZCode with `glm-5.3` (default) and `glm-5.3-flash`, or any custom `provider/model` id. See [ZCode](#zcode).
 - **[v0.1.7 · 2026-08-20]** A finished run is no longer a dead end: the workbench is now a conversation. Read the reply, type a follow-up, and the run continues on its own round ledger instead of replanning from scratch. A message you send mid-round is claimed by the very next round, so stopping and continuing never drops it. Also adds `--reasoning-effort` for every role (with `--manager-reasoning-effort` and friends to override one), forwarded to whichever backend exposes it. The transcript now reads in strict chronological order, and a graceful stop escalates to a force stop only when a worker ignores it.
 - **[v0.1.6 · 2026-08-15]** Added [OpenCode](https://github.com/anomalyco/opencode) CLI support. LongHorizon-Harness can now run `opencode run prompt` as `--agent opencode`, with role-scoped read/write permissions, OpenCode API endpoint overrides, normalized JSON results, and CLI/config/doctor integration. The Web workbench can select OpenCode Harness and its model independently for each role.
 - **[v0.1.5 · 2026-08-14]** Added phase-1 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) CLI support. LongHorizon-Harness can now run `dsh --profile headless` as `--agent deepseek_harness`, with an isolated `DSH_HOME`, role-scoped read/write permissions, DeepSeek API endpoint overrides, normalized JSONL results, and CLI/config/doctor integration. The Web workbench can select DeepSeek Harness and its model independently for each role. GUI computer-use and MCP support will follow in a later phase; see [the CLI setup](#5-or-run-a-task-from-the-command-line).
@@ -189,7 +190,7 @@ Steps 1–2 are once per machine; step 3 is once per project. Then run tasks fro
 |---|---|
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | The recommended isolated install. Skip it if you prefer pip. |
 | Python 3.10 or later | Running the harness. `uv tool install` brings its own; a pip install uses yours. |
-| One agent runtime on `PATH`: [`codex`](https://github.com/openai/codex#installing-and-running-codex-cli), [`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started), [`opencode`](https://github.com/anomalyco/opencode), or [`dsh`](https://github.com/deepseek-ai/deepseek-harness) | Actually executing the work. Install more than one if you want to mix backends across roles. |
+| One agent runtime on `PATH`: [`codex`](https://github.com/openai/codex#installing-and-running-codex-cli), [`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started), [`opencode`](https://github.com/anomalyco/opencode), [`dsh`](https://github.com/deepseek-ai/deepseek-harness), or the ZCode desktop install (its bundled headless runtime is discovered automatically) | Actually executing the work. Install more than one if you want to mix backends across roles. |
 | [Node.js](https://nodejs.org) 20 or later | The npm-distributed computer-use plugins. DeepSeek Harness itself currently requires Node.js `^22.19.0` or `>=24.0.0`. |
 
 > **Platform status:** Tested on macOS and Windows. Agent CLIs are launched as plain subprocesses — no shell is involved — so command construction behaves identically on every platform. On Windows the harness also escapes the 260-character `MAX_PATH` limit automatically, which run directories reach easily on a deep project path.
@@ -265,6 +266,16 @@ lh-harness run --task @task.md --agent deepseek_harness \
   --model deepseek-v4-flash --no-dashboard
 ```
 
+#### ZCode
+
+The ZCode backend drives the headless agent runtime bundled with the [ZCode desktop app](https://z.ai) (or a standalone install selected with `LH_HARNESS_ZCODE_BINARY`). Roles map to ZCode permission modes: executors run `yolo` inside the workspace the harness scopes, while the Manager and auditors run `plan`, so they can investigate without editing.
+
+```bash
+lh-harness run --task @task.md --agent zcode --model glm-5.3 --no-dashboard
+```
+
+Models reach ZCode as `zai/<model>` (a custom `provider/model` id passes through verbatim), and the endpoint is pinned to the Z.AI Anthropic-compatible API unless `--base-url` overrides it. Provide the key with `--api-key`, export `ZCODE_API_KEY` before starting the Web server, or log in once with `zcode login`; on a machine where the desktop app is already logged in, the harness reuses that key automatically.
+
 To make DeepSeek Harness the project default, put this in `./.lh-harness/config.toml`:
 
 ```toml
@@ -326,7 +337,7 @@ Task text, run IDs, and API keys are deliberately **not** configurable here; the
 
 | Field | Default | Description |
 |---|---|---|
-| `agent` | `"codex"` | Backend for every role unless a role overrides it: `codex`, `claude_code`, `opencode`, or `deepseek_harness`. |
+| `agent` | `"codex"` | Backend for every role unless a role overrides it: `codex`, `claude_code`, `opencode`, `deepseek_harness`, or `zcode`. |
 | `model` | `"gpt-5.6-sol"` | Model for every role unless a role overrides it. Must be a model the chosen backend exposes. |
 | `reasoning_effort` | commented out | Reasoning depth for every role unless a role overrides it, forwarded to whichever backend exposes it. Unset keeps the provider's own setting. |
 | `env` | `"local"` | Execution environment. Only `local` today. |
@@ -494,7 +505,7 @@ lh-harness web --workspace-root .               # Serve the workbench for anothe
 | Option | Description |
 |---|---|
 | `--task` | Task text or `@task.md` |
-| `--agent` | `claude_code`, `codex`, `opencode`, or `deepseek_harness` (CLI-only in phase 1) |
+| `--agent` | `claude_code`, `codex`, `opencode`, `deepseek_harness` (CLI-only in phase 1), or `zcode` |
 | `--env` | `local` |
 | `--max-rounds` | Maximum number of Manage-Execute-Audit rounds; the CLI default is 25 |
 | `--dashboard` | Start live monitoring and human intervention |

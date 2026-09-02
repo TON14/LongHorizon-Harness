@@ -31,7 +31,33 @@ _VERSION_RE = re.compile(r"\d+(?:\.\d+)+\S*")
 _CODEX_BINARY_ENV_VARS = ("LH_HARNESS_CODEX_BINARY", "CODEX_CLI_PATH")
 _DSH_BINARY_ENV_VAR = "LH_HARNESS_DSH_BINARY"
 _OPENCODE_BINARY_ENV_VAR = "LH_HARNESS_OPENCODE_BINARY"
+_ZCODE_BINARY_ENV_VAR = "LH_HARNESS_ZCODE_BINARY"
 _CODEX_DESKTOP_BINARY = "/Applications/ChatGPT.app/Contents/Resources/codex"
+
+# The ZCode desktop app is an Electron bundle whose `zcode` launcher opens the
+# GUI and ignores CLI flags, so it cannot drive episodes. The headless agent
+# runtime ships inside the installation as a Node bundle with a shebang, which
+# runs directly (given Node >= 20 on PATH). These are the packaged install
+# locations; an npm-installed standalone CLI is still found via PATH.
+_ZCODE_BUNDLE_CANDIDATES = {
+    "linux": (
+        "/opt/ZCode/resources/glm/zcode.cjs",
+        "/usr/share/zcode/resources/glm/zcode.cjs",
+        "/usr/lib/zcode/resources/glm/zcode.cjs",
+    ),
+    "darwin": (
+        "/Applications/ZCode.app/Contents/Resources/resources/glm/zcode.cjs",
+        os.path.join(
+            str(Path.home()), "Applications", "ZCode.app", "Contents", "Resources", "resources", "glm", "zcode.cjs"
+        ),
+    ),
+    "win32": (
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "ZCode", "resources", "glm", "zcode.cjs"),
+        os.path.join(
+            os.environ.get("LOCALAPPDATA", ""), "Programs", "ZCode", "resources", "glm", "zcode.cjs"
+        ),
+    ),
+}
 
 
 def resolve_agent_binary(
@@ -78,6 +104,16 @@ def resolve_agent_binary(
         if value:
             return os.path.expanduser(value)
 
+    if binary == "zcode":
+        value = str(env.get(_ZCODE_BINARY_ENV_VAR) or "").strip()
+        if value:
+            return os.path.expanduser(value)
+        platform = platform_name or sys.platform
+        for candidate in _ZCODE_BUNDLE_CANDIDATES.get(platform, ()):
+            path = Path(candidate)
+            if candidate and path.is_file() and os.access(path, os.X_OK):
+                return str(path)
+
     return shutil.which(binary)
 
 
@@ -109,6 +145,16 @@ def resolve_opencode_binary(
     """Resolve the OpenCode executable selected by the harness."""
 
     return resolve_agent_binary("opencode", environ=environ, platform_name=platform_name)
+
+
+def resolve_zcode_binary(
+    *,
+    environ: dict[str, str] | None = None,
+    platform_name: str | None = None,
+) -> str | None:
+    """Resolve the ZCode headless runtime selected by the harness."""
+
+    return resolve_agent_binary("zcode", environ=environ, platform_name=platform_name)
 
 
 def is_agent_binary_available(path: str | None) -> bool:

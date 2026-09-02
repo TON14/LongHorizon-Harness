@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 
 PROJECT_CONFIG_PATH = Path(".lh-harness/config.toml")
 
-_AGENT_CHOICES = {"claude_code", "codex", "deepseek_harness", "opencode"}
+_AGENT_CHOICES = {"claude_code", "codex", "deepseek_harness", "opencode", "zcode"}
 _ROLE_NAMES = {
     "manager",
     "executor",

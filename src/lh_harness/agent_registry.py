@@ -28,6 +28,7 @@ from .types import (
     DEFAULT_CODEX_MODEL,
     DEFAULT_DEEPSEEK_HARNESS_MODEL,
     DEFAULT_OPENCODE_MODEL,
+    DEFAULT_ZCODE_MODEL,
 )
 from .utils.agent_cli import probe_agent_cli, resolve_agent_binary
 
@@ -119,6 +120,16 @@ AGENT_SPECS: tuple[AgentSpec, ...] = (
             source="declared",
             declared_choices=("minimal", "low", "medium", "high", "max"),
         ),
+    ),
+    AgentSpec(
+        id="zcode",
+        label="ZCode",
+        binary="zcode",
+        default_model=DEFAULT_ZCODE_MODEL,
+        capabilities=frozenset({"cli"}),
+        # Headless ZCode exposes no reasoning-effort switch; depth is chosen
+        # by model (e.g. glm-5.3 vs glm-5.3-flash), so effort is rejected.
+        reasoning=None,
     ),
 )
 
