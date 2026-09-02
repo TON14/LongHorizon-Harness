@@ -84,10 +84,17 @@ def test_adapters_reject_effort_values_that_could_break_the_command(value: str) 
         )
 
 
-def test_deepseek_rejects_an_effort_instead_of_dropping_it() -> None:
-    # Ignoring it would let the workbench claim a depth the run never applied.
-    with pytest.raises(ValueError, match="does not accept a reasoning effort"):
-        DeepSeekHarnessAdapter(role="cli_executor", reasoning_effort="high")
+def test_deepseek_accepts_an_effort_for_the_patch_layer(
+    monkeypatch, tmp_path
+) -> None:
+    from lh_harness.adapters import deepseek_harness as deepseek_adapter_module
+
+    monkeypatch.setattr(
+        deepseek_adapter_module, "resolve_dsh_binary", lambda: str(tmp_path / "dsh")
+    )
+    adapter = DeepSeekHarnessAdapter(role="cli_executor", reasoning_effort="high")
+    argv = adapter.argv
+    assert argv[argv.index("--reasoning-effort") + 1] == "high"
 
 
 def _args(**values) -> argparse.Namespace:
@@ -131,10 +138,12 @@ def test_role_effort_does_not_cross_an_explicit_backend_switch() -> None:
     assert _resolve_role_reasoning_effort(args, "gui_executor", "codex") == "ultra"
 
 
-def test_role_effort_is_dropped_for_a_backend_without_the_switch() -> None:
+def test_role_effort_follows_a_backend_switch() -> None:
     args = _args(reasoning_effort="high")
 
-    assert _resolve_role_reasoning_effort(args, "manager", "deepseek_harness") is None
+    # Every registered backend now exposes a reasoning switch, so a global
+    # effort reaches a role even after it switches away from the global agent.
+    assert _resolve_role_reasoning_effort(args, "manager", "deepseek_harness") == "high"
 
 
 def test_supervisor_role_configs_keep_a_per_role_effort() -> None:
@@ -162,13 +171,14 @@ def test_supervisor_global_effort_only_reaches_roles_on_the_same_backend() -> No
     assert resolved["auditor"]["reasoning_effort"] == "high"
 
 
-def test_supervisor_rejects_an_effort_for_a_backend_without_the_switch() -> None:
-    with pytest.raises(ValueError, match="does not accept a reasoning effort"):
-        _normalise_role_configs(
-            {"manager": {"agent": "deepseek_harness", "reasoning_effort": "high"}},
-            agent="codex",
-            model="gpt-5.6-sol",
-        )
+def test_supervisor_keeps_an_effort_across_a_backend_switch() -> None:
+    resolved = _normalise_role_configs(
+        {"manager": {"agent": "deepseek_harness", "reasoning_effort": "high"}},
+        agent="codex",
+        model="gpt-5.6-sol",
+    )
+
+    assert resolved["manager"]["reasoning_effort"] == "high"
 
 
 def test_supervisor_rejects_a_malformed_role_effort() -> None:

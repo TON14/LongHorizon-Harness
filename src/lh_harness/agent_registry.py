@@ -46,7 +46,7 @@ class ReasoningSpec:
     the second case is verified.
     """
 
-    transport: Literal["codex_config", "cli_flag", "session_db"]
+    transport: Literal["codex_config", "cli_flag", "session_db", "patch_layer"]
     flag: str
     scope: Literal["per_model", "per_agent"]
     source: Literal["model_catalog", "cli_help", "declared"]
@@ -108,7 +108,16 @@ AGENT_SPECS: tuple[AgentSpec, ...] = (
         binary="dsh",
         default_model=DEFAULT_DEEPSEEK_HARNESS_MODEL,
         capabilities=frozenset({"cli"}),
-        reasoning=None,
+        reasoning=ReasoningSpec(
+            # dsh has no effort flag on its command line; the level rides in
+            # an `llm-deepseek` patch-layer override the runner writes, and
+            # the provider rejects a level it does not recognise.
+            transport="patch_layer",
+            flag="reasoningEffort",
+            scope="per_agent",
+            source="declared",
+            declared_choices=("low", "high", "max"),
+        ),
     ),
     AgentSpec(
         id="opencode",

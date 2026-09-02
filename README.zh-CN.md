@@ -308,7 +308,7 @@ export DEEPSEEK_API_KEY="sk-..."
 lh-harness web --workspace-root .
 ```
 
-适配器通过 `dsh --profile headless` 运行，每次 run 使用隔离的 `DSH_HOME`；Executor 使用 `workspace-write`，Manager 和 Auditor 使用 `read-only`。`--api-key` 会映射到 `DEEPSEEK_API_KEY`，`--base-url` 会映射到 `DEEPSEEK_BASE_URL`，也可用 `LH_HARNESS_DSH_BINARY` 指定不在 `PATH` 上的二进制。DeepSeek Harness 仍处于 developer preview；第一阶段暂不接入它的 Web UI、computer-use 插件、MCP 配置或 `--mcp-add-dir`。目前 headless profile 只返回最终答案，因此 DeepSeek 的中间 tool event 不会实时进入 trajectory；上游任务接口采用位置参数，episode 运行期间任务文本也会出现在子进程参数列表中。
+适配器通过 `dsh --profile headless` 运行，每次 run 使用隔离的 `DSH_HOME`；Executor 使用 `workspace-write`，Manager 和 Auditor 使用 `read-only`。`--api-key` 会映射到 `DEEPSEEK_API_KEY`，`--base-url` 会映射到 `DEEPSEEK_BASE_URL`，也可用 `LH_HARNESS_DSH_BINARY` 指定不在 `PATH` 上的二进制。DeepSeek Harness 仍处于 developer preview；第一阶段暂不接入它的 Web UI、computer-use 插件、MCP 配置或 `--mcp-add-dir`。目前 headless profile 只返回最终答案，因此 DeepSeek 的中间 tool event 不会实时进入 trajectory；上游任务接口采用位置参数，episode 运行期间任务文本也会出现在子进程参数列表中。 思考深度（`low`、`high`、`max`）通过 `llm-deepseek` 补丁层覆盖传入，原样到达服务方。
 
 Agent 直接在你启动命令的那个目录里工作，任务作用于你的真实项目。需要换到别处时设置 `workspace` 或 `--workspace`。`./.lh-harness/` 本身会被排除在外，本次运行自己的日志和状态不会被当成任务内容。
 

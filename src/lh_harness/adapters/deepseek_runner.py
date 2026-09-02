@@ -45,6 +45,7 @@ def run(
     model: str,
     *,
     task_via_patch: bool | None = None,
+    reasoning_effort: str | None = None,
 ) -> int:
     """Bridge one episode to the dsh headless runner.
 
@@ -67,6 +68,14 @@ def run(
             "    provider: deepseek-official",
             f"    model: {json.dumps(model, ensure_ascii=False)}",
         ]
+        if reasoning_effort:
+            # dsh patch layers merge per plugin id, so this override keeps the
+            # profile's other llm-deepseek settings (thinking stays enabled).
+            patch_lines += [
+                "- id: llm-deepseek",
+                "  config:",
+                f"    reasoningEffort: {json.dumps(reasoning_effort)}",
+            ]
         if task_via_patch:
             # The headless runner's `task` config normally resolves from the
             # command line, but a later patch layer may override that row with
@@ -123,12 +132,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--binary", required=True)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--reasoning-effort", default=None)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return run(args.binary, Path(args.prompt), args.model)
+    return run(
+        args.binary,
+        Path(args.prompt),
+        args.model,
+        reasoning_effort=args.reasoning_effort,
+    )
 
 
 if __name__ == "__main__":

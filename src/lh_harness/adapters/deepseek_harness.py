@@ -53,7 +53,13 @@ class DeepSeekHarnessAdapter(CommandAgentAdapter):
             raise ValueError("DeepSeek Harness model contains invalid characters or is too long")
         # Rejected rather than ignored: silently dropping it would make the
         # workbench claim a reasoning depth the run never applied.
-        normalise_reasoning_effort(reasoning_effort, agent_id="deepseek_harness")
+        # One shared validator for every backend: a length check alone would let
+        # a quote or newline through into the patch layer. The value itself
+        # reaches dsh verbatim -- the provider rejects a level it does not
+        # know instead of the harness guessing a mapping.
+        normalized_effort = normalise_reasoning_effort(
+            reasoning_effort, agent_id="deepseek_harness"
+        )
         if add_dirs:
             raise ValueError(
                 "DeepSeek Harness phase-1 CLI integration does not support additional directories"
@@ -86,6 +92,8 @@ class DeepSeekHarnessAdapter(CommandAgentAdapter):
             "--model",
             normalized_model,
         ]
+        if normalized_effort:
+            command += ["--reasoning-effort", normalized_effort]
         super().__init__(
             argv=command,
             env=environment,

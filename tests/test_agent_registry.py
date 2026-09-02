@@ -146,10 +146,16 @@ def test_effort_discovery_falls_back_to_declared_tiers_when_help_is_unparsable(
     assert reasoning_choices(spec, probes["claude_code"]) == spec.reasoning.declared_choices
 
 
-def test_agents_without_an_effort_switch_declare_no_reasoning() -> None:
-    assert supports_reasoning_effort("deepseek_harness") is False
-    assert agent_spec("deepseek_harness").reasoning is None
-    assert reasoning_choices(agent_spec("deepseek_harness"), None) == ()
+def test_deepseek_declares_the_patch_layer_effort_switch() -> None:
+    assert supports_reasoning_effort("deepseek_harness") is True
+    reasoning = agent_spec("deepseek_harness").reasoning
+    assert reasoning is not None
+    assert reasoning.transport == "patch_layer"
+    assert reasoning_choices(agent_spec("deepseek_harness"), None) == (
+        "low",
+        "high",
+        "max",
+    )
 
 
 def test_every_other_agent_declares_how_it_receives_an_effort() -> None:
@@ -191,9 +197,9 @@ def test_blank_reasoning_effort_means_follow_the_provider_default() -> None:
     assert normalise_reasoning_effort("   ") == ""
 
 
-def test_reasoning_effort_is_rejected_for_an_agent_without_the_switch() -> None:
-    with pytest.raises(ValueError, match="does not accept a reasoning effort"):
-        normalise_reasoning_effort("high", agent_id="deepseek_harness")
+def test_reasoning_effort_is_rejected_for_an_unknown_agent() -> None:
+    with pytest.raises(ValueError, match="not-an-agent does not accept"):
+        normalise_reasoning_effort("high", agent_id="not-an-agent")
     # Blank stays acceptable: it asks for nothing.
     assert normalise_reasoning_effort("", agent_id="deepseek_harness") == ""
 
