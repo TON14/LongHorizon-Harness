@@ -36,6 +36,7 @@ LongHorizon-Harness 将现有 Agent 变成可长期运行的 computer-use 系统
 
 ## ✨ News
 
+- **支持 ZCode。** LongHorizon-Harness 现在可以通过 `--agent zcode` 无头调用 ZCode CLI，提供按角色划分的权限模式（Manager 与审计用 `plan`，执行者用 `yolo`）、Z.AI 端点与 API Key 配置、标准化 JSON 结果以及 CLI/config/doctor 集成。Web 工作台提供 `glm-5.3`（默认）与 `glm-5.3-flash`，也支持自定义 `provider/model` ID。详见 [ZCode](#zcode)。
 - **[v0.1.7 · 2026-08-20]** 任务跑完不再是终点，工作台变成了一场对话：看完回复直接追问，任务会沿用自己已完成的轮次继续跑，而不是从头重新规划。运行中发出的消息会被下一轮立即取用，先停止再继续也不会漏掉。同时新增 `--reasoning-effort` 统一设置各角色的推理强度（也可用 `--manager-reasoning-effort` 等单独覆盖），并转发给支持该能力的后端。对话现在严格按时间顺序展示，而强制中止只在 worker 忽略正常停止时才会出现。
 - **[v0.1.6 · 2026-08-15]** 新增 [OpenCode](https://github.com/anomalyco/opencode) CLI 支持。LongHorizon-Harness 现在可以通过 `--agent opencode` 调用 `opencode run prompt`，并支持按角色划分的读写权限、OpenCode API 端点覆盖、标准化 JSON 结果，以及 CLI/config/doctor 集成。Web 工作台可以为每个角色单独选择 OpenCode Harness 及其模型。
 - **[v0.1.5 · 2026-08-14]** 第一阶段已适配 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) CLI。LongHorizon-Harness 现在可以通过 `--agent deepseek_harness` 调用 `dsh --profile headless`，并提供隔离的 `DSH_HOME`、按角色划分的读写权限、DeepSeek API 端点覆盖、标准化 JSONL 结果以及 CLI/config/doctor 接入。Web 工作台支持为每个角色分别选择 DeepSeek Harness 及其模型；GUI computer-use 和 MCP 支持将在后续阶段补充。使用方式见 [CLI 配置说明](#5-也可以用命令行运行任务)。
@@ -190,7 +191,7 @@ LongHorizon-Harness 不只展示了几个精心挑选的成功案例。
 |---|---|
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | 推荐的隔离安装方式。习惯用 pip 可以不装。 |
 | Python 3.10 或更高版本 | 运行 Harness。`uv tool install` 自带 Python；用 pip 安装则使用你当前的。 |
-| `PATH` 上有一个 Agent 运行时：[`codex`](https://github.com/openai/codex#installing-and-running-codex-cli)、[`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started)、[`opencode`](https://github.com/anomalyco/opencode) 或 [`dsh`](https://github.com/deepseek-ai/deepseek-harness) | 真正执行任务。想按角色混用多个后端就安装多个。 |
+| `PATH` 上有一个 Agent 运行时：[`codex`](https://github.com/openai/codex#installing-and-running-codex-cli)、[`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started)、[`opencode`](https://github.com/anomalyco/opencode)、[`dsh`](https://github.com/deepseek-ai/deepseek-harness)，或 ZCode 桌面版安装（自带的 headless 运行时会被自动发现） | 真正执行任务。想按角色混用多个后端就安装多个。 |
 | [Node.js](https://nodejs.org) 20 或更高版本 | npm 分发的 computer-use 插件需要；DeepSeek Harness 本身目前要求 Node.js `^22.19.0` 或 `>=24.0.0`。 |
 
 > **平台状态：** 已在 macOS 和 Windows 上测试。Agent CLI 以普通子进程方式启动，不经过 shell，因此命令构造在所有平台上行为一致。在 Windows 上还会自动绕开 260 字符的 `MAX_PATH` 限制——项目路径较深时，运行目录很容易超过这个长度。
@@ -275,6 +276,16 @@ model = "deepseek-v4-flash"
 dashboard = false
 ```
 
+#### ZCode
+
+ZCode 后端无头调用 [ZCode 桌面版](https://z.ai)自带的 agent 运行时（也可用 `LH_HARNESS_ZCODE_BINARY` 指定独立安装）。角色映射到 ZCode 权限模式：执行者在 harness 划定的工作区内以 `yolo` 运行，Manager 与审计以 `plan` 运行，只能调查不能修改。
+
+```bash
+lh-harness run --task @task.md --agent zcode --model glm-5.3 --no-dashboard
+```
+
+模型以 `zai/<model>` 形式传给 ZCode（自定义 `provider/model` ID 原样透传），端点默认指向 Z.AI 的 Anthropic 兼容 API，可用 `--base-url` 覆盖。密钥可通过 `--api-key` 提供，或在启动 Web 服务前导出 `ZCODE_API_KEY`，或先用 `zcode login` 登录；桌面版已登录的机器上，harness 会自动复用该密钥。
+
 之后就可以继续使用原来的 LongHorizon-Harness 命令：
 
 ```bash
@@ -327,7 +338,7 @@ lh-harness check-update
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `agent` | `"codex"` | 所有角色使用的后端（角色可单独覆盖）：`codex`、`claude_code`、`opencode` 或 `deepseek_harness`。 |
+| `agent` | `"codex"` | 所有角色使用的后端（角色可单独覆盖）：`codex`、`claude_code`、`opencode`、`deepseek_harness` 或 `zcode`。 |
 | `model` | `"gpt-5.6-sol"` | 所有角色使用的模型（角色可单独覆盖）。必须是所选后端支持的模型。 |
 | `reasoning_effort` | 默认注释 | 所有角色的推理强度（角色可单独覆盖），转发给支持该能力的后端。不设置则沿用服务方自身的默认值。 |
 | `env` | `"local"` | 执行环境，目前只有 `local`。 |
@@ -495,7 +506,7 @@ lh-harness web --workspace-root .               # 为指定目录启动工作台
 | 参数 | 说明 |
 |---|---|
 | `--task` | 任务文本或 `@task.md` |
-| `--agent` | `claude_code`、`codex`、`opencode` 或 `deepseek_harness`（第一阶段仅 CLI） |
+| `--agent` | `claude_code`、`codex`、`opencode`、`deepseek_harness`（第一阶段仅 CLI）或 `zcode` |
 | `--env` | `local` |
 | `--max-rounds` | Manage-Execute-Audit 循环的最大轮数；CLI 默认为 25 |
 | `--dashboard` | 启动实时监控和人工介入功能 |
