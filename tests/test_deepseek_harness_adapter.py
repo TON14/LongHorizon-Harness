@@ -152,6 +152,42 @@ def test_deepseek_runner_preserves_failure_and_stderr(tmp_path: Path, capfd) -> 
     assert "provider unavailable" in captured.err
 
 
+def test_deepseek_runner_forwards_the_effort_through_the_patch(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    binary = _executable(tmp_path / "bin" / "dsh", "print(' '.join(sys.argv[1:]))\n")
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("fix the project", encoding="utf-8")
+
+    assert (
+        run(binary, prompt_path, "deepseek-v4-pro", reasoning_effort="high") == 0
+    )
+
+    patch_path = prompt_path.with_name(f"{prompt_path.name}.dsh-model-patch.yml")
+    patch_text = patch_path.read_text(encoding="utf-8")
+    assert "- id: llm-deepseek" in patch_text
+    assert 'reasoningEffort: "high"' in patch_text
+
+
+def test_deepseek_adapter_passes_effort_to_the_runner(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    binary = str(tmp_path / "DeepSeek Harness" / "dsh")
+    monkeypatch.setattr(deepseek_adapter_module, "resolve_dsh_binary", lambda: binary)
+
+    adapter = DeepSeekHarnessAdapter(
+        model="deepseek-v4-pro",
+        prompt_dir=str(tmp_path / "prompts"),
+        role="cli_auditor",
+        reasoning_effort="high",
+    )
+
+    argv = adapter.argv
+    assert argv[argv.index("--reasoning-effort") + 1] == "high"
+
+
 def test_deepseek_jsonl_views() -> None:
     raw = json.dumps(
         {
