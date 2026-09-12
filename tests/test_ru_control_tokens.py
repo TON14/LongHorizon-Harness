@@ -96,3 +96,38 @@ def test_audit_report_russian_english_mixed() -> None:
     assert report.status == "complete"
     assert report.integrity_status == "clean"
     assert report.contract_audit_status == "aligned"
+
+
+def test_audit_report_tolerates_preamble_before_header() -> None:
+    """Однострочная проза перед контрольными строками не должна губить раунд.
+
+    Реальный случай (ton-graph, 2026-09-12): аудитор открыл отчёт фразой
+    «Все проверки завершены. Собираю отчёт аудита.», сдвинув Статус/Целостность/
+    Аудит контракта со своих позиций — раунд сгорел на invalid control header.
+    """
+    raw = (
+        "Все проверки завершены. Собираю отчёт аудита.\n"
+        "\n"
+        "Статус: завершено\n"
+        "Целостность: чисто\n"
+        "Аудит контракта: согласован\n"
+        "\n"
+        "## Сводка\n"
+        "Проверено."
+    )
+    report = parse_audit_report(raw, 7)
+    assert report.status == "complete"
+    assert report.integrity_status == "clean"
+    assert report.contract_audit_status == "aligned"
+
+
+def test_audit_report_prose_without_header_stays_invalid() -> None:
+    """Проза без контрольных строк — валидный отказ; окно не превращает
+    любой текст в заголовок. (Проверка на отсутствие ложного срабатывания.)"""
+    raw = "\n".join(
+        f"Строка контекста номер {i} без контрольных маркеров." for i in range(1, 9)
+    ) + "\n\nИтог: всё проверено, нарушений нет.\n"
+    report = parse_audit_report(raw, 8)
+    assert report.status == "blocked"
+    assert report.integrity_status == "suspect"
+    assert report.contract_audit_status == "unknown"
