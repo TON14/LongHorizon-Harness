@@ -21,16 +21,22 @@ VISIBLE_OUTPUT_KEYS = (
     "output_text",
 )
 _STATUS_CONTROL_LINE_RE = re.compile(
-    r"^\s*(?:\*\*)?\s*(?:状态|status)\s*[:：]\s*(complete|incomplete|blocked|完成|未完成|阻塞)\s*(?:\*\*)?\s*$",
+    r"^\s*(?:\*\*)?\s*(?:状态|status|статус)\s*[:：]\s*"
+    r"(complete|incomplete|blocked|完成|未完成|阻塞"
+    r"|завершено|выполнено|незавершено|незавершён|заблокирован)"
+    r"\s*(?:\*\*)?\s*$",
     re.I,
 )
 _INTEGRITY_CONTROL_LINE_RE = re.compile(
-    r"^\s*(?:\*\*)?\s*(?:完整性|integrity)\s*[:：]\s*(clean|suspect|violation)\s*(?:\*\*)?\s*$",
+    r"^\s*(?:\*\*)?\s*(?:完整性|integrity|целостность)\s*[:：]\s*"
+    r"(clean|suspect|violation|чисто|подозрительно|нарушение)"
+    r"\s*(?:\*\*)?\s*$",
     re.I,
 )
 _CONTRACT_AUDIT_CONTROL_LINE_RE = re.compile(
-    r"^\s*(?:\*\*)?\s*(?:契约审计|contract(?:[_\s-]*audit)?)\s*[:：]\s*"
-    r"(aligned|unknown|needs[_\s-]*revision|invalid|对齐|未知|需修订|需要修订|无效)"
+    r"^\s*(?:\*\*)?\s*(?:契约审计|contract(?:[_\s-]*audit)?|аудит\s*контракта)\s*[:：]\s*"
+    r"(aligned|unknown|needs[_\s-]*revision|invalid|对齐|未知|需修订|需要修订|无效"
+    r"|согласован|неизвестно|требуется[_\s]*доработка|требует[_\s]*доработки|невалиден)"
     r"\s*(?:\*\*)?\s*$",
     re.I,
 )
@@ -396,9 +402,9 @@ def _parse_status_control_header(text: str) -> str | None:
     if not match:
         return None
     value = match.group(1).lower()
-    if value in {"complete", "完成"}:
+    if value in {"complete", "完成", "завершено", "выполнено"}:
         return "complete"
-    if value in {"blocked", "阻塞"}:
+    if value in {"blocked", "阻塞", "заблокирован"}:
         return "blocked"
     return "incomplete"
 
@@ -410,7 +416,9 @@ def _parse_integrity_control_header(text: str) -> str | None:
     match = _INTEGRITY_CONTROL_LINE_RE.match(lines[1])
     if not match:
         return None
-    return match.group(1).lower()
+    value = match.group(1).lower()
+    ru = {"чисто": "clean", "подозрительно": "suspect", "нарушение": "violation"}
+    return ru.get(value, value)
 
 
 def _parse_contract_audit_control_header(text: str) -> str | None:
@@ -421,11 +429,11 @@ def _parse_contract_audit_control_header(text: str) -> str | None:
     if not match:
         return None
     value = match.group(1).lower().replace("-", "_").replace(" ", "_")
-    if value in {"aligned", "对齐"}:
+    if value in {"aligned", "对齐", "согласован"}:
         return "aligned"
-    if value in {"needs_revision", "需修订", "需要修订"}:
+    if value in {"needs_revision", "需修订", "需要修订", "требуется_доработка", "требует_доработки"}:
         return "needs_revision"
-    if value in {"invalid", "无效"}:
+    if value in {"invalid", "无效", "невалиден"}:
         return "invalid"
     return "unknown"
 

@@ -495,15 +495,15 @@ def parse_role_manager_next_step(text: str) -> RoleNextStep:
         # "`Next: cli` — reason" the closing backtick sits before the dash and
         # survives the first strip.
         normalized = re.split(r"(?:—|–|--|//|#|[（(])", normalized, maxsplit=1)[0].strip("*`")
-        if normalized in {"下一步:gui任务", "下一步：gui任务", "next:gui"}:
+        if normalized in {"下一步:gui任务", "下一步：gui任务", "next:gui", "следующийшаг:gui", "далее:gui"}:
             return MANAGER_NEXT_GUI
-        if normalized in {"下一步:cli任务", "下一步：cli任务", "next:cli"}:
+        if normalized in {"下一步:cli任务", "下一步：cli任务", "next:cli", "следующийшаг:cli", "далее:cli"}:
             return MANAGER_NEXT_CLI
-        if normalized in {"下一步:请示用户", "下一步：请示用户", "下一步:请示", "下一步：请示", "下一步:询问用户", "下一步：询问用户", "next:ask"}:
+        if normalized in {"下一步:请示用户", "下一步：请示用户", "下一步:请示", "下一步：请示", "下一步:询问用户", "下一步：询问用户", "next:ask", "следующийшаг:ask", "далее:ask", "следующийшаг:спроситьпользователя", "далее:спроситьпользователя"}:
             return MANAGER_NEXT_ASK
-        if normalized in {"下一步:完成", "下一步：完成", "next:done", "next:complete"}:
+        if normalized in {"下一步:完成", "下一步：完成", "next:done", "next:complete", "следующийшаг:done", "далее:done", "следующийшаг:готово", "далее:готово"}:
             return MANAGER_NEXT_DONE
-        if normalized in {"下一步:阻塞", "下一步：阻塞", "next:blocked"}:
+        if normalized in {"下一步:阻塞", "下一步：阻塞", "next:blocked", "следующийшаг:blocked", "далее:blocked", "следующийшаг:блок", "далее:блок"}:
             return MANAGER_NEXT_BLOCKED
     return MANAGER_NEXT_INVALID
 
@@ -556,7 +556,7 @@ def extract_role_manager_answer_choices(plan_text: str) -> list[str]:
 
 
 _MANAGER_ROUTE_LINE_RE = re.compile(
-    r"(?im)^\s*(?:\*\*)?\s*(?:下一步\s*[:：]\s*(?:GUI任务|CLI任务|请示用户|请示|询问用户|完成|阻塞)|next\s*:\s*(?:gui|cli|ask|done|complete|blocked))"
+    r"(?im)^\s*(?:\*\*)?\s*(?:下一步\s*[:：]\s*(?:GUI任务|CLI任务|请示用户|请示|询问用户|完成|阻塞)|next\s*:\s*(?:gui|cli|ask|done|complete|blocked)|(?:следующий\s+шаг|далее)\s*[:：]\s*(?:gui|cli|ask|done|complete|blocked|готово|блок))"
 )
 
 
