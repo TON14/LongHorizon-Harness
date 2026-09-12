@@ -398,7 +398,12 @@ def _parse_status_control_header(text: str) -> str | None:
     lines = _first_nonempty_lines(text, 1)
     if not lines:
         return None
-    match = _STATUS_CONTROL_LINE_RE.match(lines[0])
+    match = None
+    for line in _control_lines_window(text):
+        candidate = _STATUS_CONTROL_LINE_RE.match(line)
+        if candidate:
+            match = candidate
+            break
     if not match:
         return None
     value = match.group(1).lower()
@@ -413,7 +418,12 @@ def _parse_integrity_control_header(text: str) -> str | None:
     lines = _first_nonempty_lines(text, 2)
     if len(lines) < 2:
         return None
-    match = _INTEGRITY_CONTROL_LINE_RE.match(lines[1])
+    match = None
+    for line in _control_lines_window(text):
+        candidate = _INTEGRITY_CONTROL_LINE_RE.match(line)
+        if candidate:
+            match = candidate
+            break
     if not match:
         return None
     value = match.group(1).lower()
@@ -425,7 +435,12 @@ def _parse_contract_audit_control_header(text: str) -> str | None:
     lines = _first_nonempty_lines(text, 3)
     if len(lines) < 3:
         return None
-    match = _CONTRACT_AUDIT_CONTROL_LINE_RE.match(lines[2])
+    match = None
+    for line in _control_lines_window(text):
+        candidate = _CONTRACT_AUDIT_CONTROL_LINE_RE.match(line)
+        if candidate:
+            match = candidate
+            break
     if not match:
         return None
     value = match.group(1).lower().replace("-", "_").replace(" ", "_")
@@ -624,7 +639,8 @@ def _looks_like_report(text: str) -> bool:
 
 def _trim_to_report_start(text: str) -> str:
     match = re.search(
-        r"(?im)^\s*(?:\*\*)?\s*(?:状态|status)\s*[:：]\s*(?:complete|incomplete|blocked|完成|未完成|阻塞)",
+        r"(?im)^\s*(?:\*\*)?\s*(?:状态|status|статус)\s*[:：]\s*"
+        r"(?:complete|incomplete|blocked|完成|未完成|阻塞|завершено|выполнено|незавершено|незавершён|заблокирован)",
         text,
     )
     if match:
@@ -695,6 +711,18 @@ def _first_nonempty_lines(text: str, count: int) -> list[str]:
         if len(lines) >= count:
             break
     return lines
+
+
+# Auditors -- reliably the wordier ones -- sometimes open the report with a
+# one-line preamble ("All checks complete. Compiling the audit report.")
+# before the three control lines, which pushed Status/Integrity/Contract
+# out of their fixed first/second/third positions and burned the whole
+# round on an "invalid control header" verdict. The header parsers below
+# therefore scan a small window of leading non-empty lines for the k-th
+# control line IN ORDER, tolerating preamble noise but not body text:
+# the window is short and each line may be claimed by at most one header.
+def _control_lines_window(text: str, window: int = 8) -> list[str]:
+    return _first_nonempty_lines(text, window)
 
 
 def _strip_heading(line: str) -> str:
