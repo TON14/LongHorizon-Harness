@@ -1,3 +1,13 @@
+# Release pipeline for LongHorizon-Harness.
+#
+# This is a fork, and the PyPI name lh-harness belongs to the upstream
+# project, so this workflow stops short of publishing: the old publish and
+# announcement jobs are gone. What remains is the verification half of the
+# release, the part that proves a tag is actually shippable: build the Web
+# bundle, run both test suites, build the sdist and wheel, check their
+# metadata and contents, and upload them as workflow artifacts. Tagging
+# with v* (or dispatching the workflow by hand) still triggers it.
+
 name: 🚀 Release
 
 on:
@@ -112,43 +122,3 @@ jobs:
         with:
           name: dist
           path: dist/
-
-  pypi:
-    name: 🚀 Publish to PyPI
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/lh-harness
-    permissions:
-      id-token: write
-    steps:
-      - name: 📥 Download distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: 🚀 Publish
-        uses: pypa/gh-action-pypi-publish@release/v1
-
-  github-release:
-    name: 🏷️ Create GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: pypi
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: 📥 Download distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: 🏷️ Publish release notes
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          generate_release_notes: true
