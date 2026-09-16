@@ -12,6 +12,14 @@ __pycache__/
 venv/
 env/
 
+# uv resolves the same dependencies from pyproject for local development;
+# the project itself is library-style and does not ship the lockfile.
+uv.lock
+
+# The zcode adapter writes a provider config (with an API key) into the
+# workspace a run executes in; it must never be committed.
+.zcode/
+
 # Build artifacts
 build/
 dist/
