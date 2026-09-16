@@ -41,3 +41,22 @@ jobs:
         # The Windows symlink fixtures skip themselves when the runner lacks
         # SeCreateSymbolicLinkPrivilege; those skips are expected and green.
         run: python -m pytest -q
+
+  web:
+    name: 🕸️ Frontend core and Web app types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 📦 Install the Web app dependencies
+        run: npm ci --prefix frontend/web --no-audit --no-fund
+
+      - name: 🧪 Run the shared frontend suite
+        run: npm test --prefix frontend/web
+
+      - name: 🔍 Type-check the Web app
+        run: npm run typecheck --prefix frontend/web
