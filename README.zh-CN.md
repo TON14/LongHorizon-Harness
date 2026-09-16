@@ -222,7 +222,7 @@ lh-harness plugin install codex-computer-use
 lh-harness plugin install open-computer-use
 ```
 
-`codex-computer-use` 是 Codex CLI 自带的官方插件，只支持 Codex。`open-computer-use` 通过 npm 分发，需要 Node.js 20+，两个 Agent 都能驱动。两者都需要系统权限，且 **macOS 上必须手动授予**。相关说明、第三个可选插件 `clawdcursor`，以及各自的接线方式，见[管理 computer-use 插件](#管理-computer-use-插件)。
+`codex-computer-use` 是 Codex CLI 自带的官方插件，只支持 Codex。`open-computer-use` 通过 npm 分发，需要 Node.js 22+，两个 Agent 都能驱动。两者都需要系统权限，且 **macOS 上必须手动授予**。相关说明、第三个可选插件 `clawdcursor`，以及各自的接线方式，见[管理 computer-use 插件](#管理-computer-use-插件)。
 
 #### 3. 生成项目配置
 
