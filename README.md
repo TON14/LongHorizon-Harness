@@ -17,7 +17,7 @@
 <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f.svg?style=flat-square" alt="MIT License" /></a>
 </p>
 
-[![Python](https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-≥3.14-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Agents](https://img.shields.io/badge/backends-Claude%20Code%20|%20Codex%20|%20OpenCode%20|%20DeepSeek-8A2BE2)](#any-model-any-agent-backend)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-WeaveBench%20|%20OSWorld%202.0%20|%20Terminal--Bench%202.1-orange)](#hundreds-of-real-tasks-measured-gains)
 
@@ -189,7 +189,7 @@ Steps 1–2 are once per machine; step 3 is once per project. Then run tasks fro
 | | Needed for |
 |---|---|
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | The recommended isolated install. Skip it if you prefer pip. |
-| Python 3.10 or later | Running the harness. `uv tool install` brings its own; a pip install uses yours. |
+| Python 3.14 or later | Running the harness. `uv tool install` brings its own; a pip install uses yours. |
 | One agent runtime on `PATH`: [`codex`](https://github.com/openai/codex#installing-and-running-codex-cli), [`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started), [`opencode`](https://github.com/anomalyco/opencode), [`dsh`](https://github.com/deepseek-ai/deepseek-harness), or the ZCode desktop install (its bundled headless runtime is discovered automatically) | Actually executing the work. Install more than one if you want to mix backends across roles. |
 | [Node.js](https://nodejs.org) 22 or later | The npm-distributed computer-use plugins. DeepSeek Harness itself currently requires Node.js `^22.19.0` or `>=24.0.0`. |
 

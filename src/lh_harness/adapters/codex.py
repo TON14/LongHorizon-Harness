@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
+import tomllib
 
 from ..types import DEFAULT_CODEX_MODEL, DEFAULT_TMP_DIR, DEFAULT_WORKSPACE_PATH
 from ..agent_logs import visible_output as extract_codex_visible_output
 from ..agent_registry import normalise_reasoning_effort
 from ..utils.agent_cli import resolve_codex_binary
 from .cli_agent import CommandAgentAdapter
-
-try:
-    tomllib = importlib.import_module("tomllib")
-except ModuleNotFoundError:
-    tomllib = importlib.import_module("tomli")
 
 # Codex resolves this provider id against `model_providers.<id>` so a run can
 # target any OpenAI-compatible endpoint without editing ~/.codex/config.toml.

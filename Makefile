@@ -21,7 +21,7 @@ WEB         := frontend/web
 # Minimum toolchain versions, checked before anything installs or runs.
 # PYTHON_MIN tracks pyproject's requires-python; NODE_MIN tracks the Node
 # version .github/workflows/release.yml provisions to build the Web bundle.
-PYTHON_MIN  := 3.10
+PYTHON_MIN  := 3.14
 NODE_MIN    := 22
 
 .DEFAULT_GOAL := help

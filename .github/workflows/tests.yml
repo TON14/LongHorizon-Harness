@@ -21,12 +21,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both supported platforms, at both ends of requires-python: the
-        # oldest interpreter the project promises and the newest it is
-        # developed against. The suite needs no Node toolchain -- the Web
-        # bundle is a packaging artifact, not a test dependency.
+        # Both supported platforms, on the one interpreter the project
+        # promises: requires-python is also the CI floor. The suite needs no
+        # Node toolchain -- the Web bundle is a packaging artifact, not a
+        # test dependency.
         os: [ubuntu-latest, windows-latest]
-        python: ["3.10", "3.14"]
+        python: ["3.14"]
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +50,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: 📦 Install the Web app dependencies
         run: npm ci --prefix frontend/web --no-audit --no-fund

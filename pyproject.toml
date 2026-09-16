@@ -7,13 +7,12 @@ name = "lh-harness"
 version = "0.1.7"
 description = "Role-orchestrated harness for long-horizon computer-use tasks"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["agent", "long-horizon", "computer-use", "llm"]
 dependencies = [
     "packaging",
-    "tomli; python_version < '3.11'",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "websockets>=12",

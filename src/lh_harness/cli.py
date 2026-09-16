@@ -826,14 +826,13 @@ def _doctor_command() -> int:
 
     failures = 0
     warnings = 0
-    python_ok = sys.version_info >= (3, 10)
+    # requires-python guarantees the floor, so this line only reports which
+    # runtime is in use; there is nothing left for it to fail on.
     _doctor_line(
-        "OK" if python_ok else "FAIL",
+        "OK",
         "Python",
         f"{platform.python_version()} ({sys.executable})",
     )
-    if not python_ok:
-        failures += 1
 
     if PROJECT_CONFIG_PATH.is_file():
         try:

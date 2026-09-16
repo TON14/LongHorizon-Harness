@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import importlib
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from .types import MAX_ROUNDS
-
-try:
-    tomllib = importlib.import_module("tomllib")
-except ModuleNotFoundError:
-    tomllib = importlib.import_module("tomli")
 
 PROJECT_CONFIG_PATH = Path(".lh-harness/config.toml")
 
