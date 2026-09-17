@@ -48,7 +48,8 @@ include = [
     "/src/lh_harness",
     "/pyproject.toml",
     "/README.md",
-    "/README.zh-CN.md",
+    "/docs/upstream/README.md",
+    "/docs/upstream/README.zh-CN.md",
     "/LICENSE",
 ]
 # Ship the built assets so `pip install <sdist>` yields a wheel with the Web UI.
