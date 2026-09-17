@@ -17,7 +17,7 @@
 <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-2ea44f.svg?style=flat-square" alt="MIT License" /></a>
 </p>
 
-[![Python](https://img.shields.io/badge/python-≥3.14-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![Agents](https://img.shields.io/badge/backends-Claude%20Code%20|%20Codex%20|%20OpenCode%20|%20DeepSeek-8A2BE2)](#任意模型任意-agent-后端)
 [![Benchmarks](https://img.shields.io/badge/benchmarks-WeaveBench%20|%20OSWorld%202.0%20|%20Terminal--Bench%202.1-orange)](#数百个真实任务规模化验证)
 
@@ -36,7 +36,6 @@ LongHorizon-Harness 将现有 Agent 变成可长期运行的 computer-use 系统
 
 ## ✨ News
 
-- **支持 ZCode。** LongHorizon-Harness 现在可以通过 `--agent zcode` 无头调用 ZCode CLI，提供按角色划分的权限模式（Manager 与审计用 `plan`，执行者用 `yolo`）、Z.AI 端点与 API Key 配置、标准化 JSON 结果以及 CLI/config/doctor 集成。Web 工作台提供 `glm-5.3`（默认）与 `glm-5.3-flash`，也支持自定义 `provider/model` ID。详见 [ZCode](#zcode)。
 - **[v0.1.7 · 2026-08-20]** 任务跑完不再是终点，工作台变成了一场对话：看完回复直接追问，任务会沿用自己已完成的轮次继续跑，而不是从头重新规划。运行中发出的消息会被下一轮立即取用，先停止再继续也不会漏掉。同时新增 `--reasoning-effort` 统一设置各角色的推理强度（也可用 `--manager-reasoning-effort` 等单独覆盖），并转发给支持该能力的后端。对话现在严格按时间顺序展示，而强制中止只在 worker 忽略正常停止时才会出现。
 - **[v0.1.6 · 2026-08-15]** 新增 [OpenCode](https://github.com/anomalyco/opencode) CLI 支持。LongHorizon-Harness 现在可以通过 `--agent opencode` 调用 `opencode run prompt`，并支持按角色划分的读写权限、OpenCode API 端点覆盖、标准化 JSON 结果，以及 CLI/config/doctor 集成。Web 工作台可以为每个角色单独选择 OpenCode Harness 及其模型。
 - **[v0.1.5 · 2026-08-14]** 第一阶段已适配 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) CLI。LongHorizon-Harness 现在可以通过 `--agent deepseek_harness` 调用 `dsh --profile headless`，并提供隔离的 `DSH_HOME`、按角色划分的读写权限、DeepSeek API 端点覆盖、标准化 JSONL 结果以及 CLI/config/doctor 接入。Web 工作台支持为每个角色分别选择 DeepSeek Harness 及其模型；GUI computer-use 和 MCP 支持将在后续阶段补充。使用方式见 [CLI 配置说明](#5-也可以用命令行运行任务)。
@@ -106,8 +105,8 @@ LongHorizon-Harness 不绑定特定模型或 Agent 后端。现有模型和 Agen
 
 | | 层级 | 支持选项 |
 |---|---|---|
-| 🧠 | **模型** | Claude、GPT、GLM、Qwen，以及 Agent 后端提供的其他模型 |
-| 🤖 | **Agent 后端** | Claude Code、Codex CLI、OpenCode、DeepSeek Harness（`dsh`，第一阶段仅 CLI）、ZCode，以及自定义 `AgentAdapter` 实现 |
+| 🧠 | **模型** | Claude、GPT、Qwen，以及 Agent 后端提供的其他模型 |
+| 🤖 | **Agent 后端** | Claude Code、Codex CLI、OpenCode、DeepSeek Harness（`dsh`，第一阶段仅 CLI），以及自定义 `AgentAdapter` 实现 |
 | 🎛️ | **角色分配** | Manager、Executor 和 Auditor 可以分别使用不同模型或后端 |
 | 🖥️ | **执行环境** | 本地，并提供可扩展的 `Environment` 协议 |
 
@@ -190,11 +189,11 @@ LongHorizon-Harness 不只展示了几个精心挑选的成功案例。
 | | 用途 |
 |---|---|
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | 推荐的隔离安装方式。习惯用 pip 可以不装。 |
-| Python 3.14 或更高版本 | 运行 Harness。`uv tool install` 自带 Python；用 pip 安装则使用你当前的。 |
-| `PATH` 上有一个 Agent 运行时：[`codex`](https://github.com/openai/codex#installing-and-running-codex-cli)、[`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started)、[`opencode`](https://github.com/anomalyco/opencode)、[`dsh`](https://github.com/deepseek-ai/deepseek-harness)，或 ZCode 桌面版安装（自带的 headless 运行时会被自动发现） | 真正执行任务。想按角色混用多个后端就安装多个。 |
-| [Node.js](https://nodejs.org) 24 或更高版本 | npm 分发的 computer-use 插件需要；DeepSeek Harness 本身目前要求 Node.js `^22.19.0` 或 `>=24.0.0`。 |
+| Python 3.10 或更高版本 | 运行 Harness。`uv tool install` 自带 Python；用 pip 安装则使用你当前的。 |
+| `PATH` 上有一个 Agent 运行时：[`codex`](https://github.com/openai/codex#installing-and-running-codex-cli)、[`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started)、[`opencode`](https://github.com/anomalyco/opencode) 或 [`dsh`](https://github.com/deepseek-ai/deepseek-harness) | 真正执行任务。想按角色混用多个后端就安装多个。 |
+| [Node.js](https://nodejs.org) 20 或更高版本 | npm 分发的 computer-use 插件需要；DeepSeek Harness 本身目前要求 Node.js `^22.19.0` 或 `>=24.0.0`。 |
 
-> **平台状态：** 已在 macOS 和 Windows 上测试。Agent CLI 以普通子进程方式启动，不经过 shell，因此命令构造在所有平台上行为一致。在 Windows 上还会自动绕开 260 字符的 `MAX_PATH` 限制——项目路径较深时，运行目录很容易超过这个长度。
+> **平台状态：** 目前只在 macOS 上完成了测试；Windows 已支持，但尚未经过详细测试。
 
 以上都可以用 `lh-harness doctor` 一次性检查，见[检查运行环境](#检查运行环境)。
 
@@ -222,7 +221,7 @@ lh-harness plugin install codex-computer-use
 lh-harness plugin install open-computer-use
 ```
 
-`codex-computer-use` 是 Codex CLI 自带的官方插件，只支持 Codex。`open-computer-use` 通过 npm 分发，需要 Node.js 24+，两个 Agent 都能驱动。两者都需要系统权限，且 **macOS 上必须手动授予**。相关说明、第三个可选插件 `clawdcursor`，以及各自的接线方式，见[管理 computer-use 插件](#管理-computer-use-插件)。
+`codex-computer-use` 是 Codex CLI 自带的官方插件，只支持 Codex。`open-computer-use` 通过 npm 分发，需要 Node.js 20+，两个 Agent 都能驱动。两者都需要系统权限，且 **macOS 上必须手动授予**。相关说明、第三个可选插件 `clawdcursor`，以及各自的接线方式，见[管理 computer-use 插件](#管理-computer-use-插件)。
 
 #### 3. 生成项目配置
 
@@ -276,24 +275,6 @@ model = "deepseek-v4-flash"
 dashboard = false
 ```
 
-#### ZCode
-
-ZCode 后端无头调用 [ZCode 桌面版](https://z.ai)自带的 agent 运行时（也可用 `LH_HARNESS_ZCODE_BINARY` 指定独立安装）。角色映射到 ZCode 权限模式：执行者在 harness 划定的工作区内以 `yolo` 运行，Manager 与审计以 `plan` 运行，只能调查不能修改。
-
-```bash
-lh-harness run --task @task.md --agent zcode --model glm-5.3 --no-dashboard
-```
-
-模型以 `zai/<model>` 形式传给 ZCode（自定义 `provider/model` ID 原样透传），端点默认指向 Z.AI 的 Anthropic 兼容 API，可用 `--base-url` 覆盖。密钥可通过 `--api-key` 提供，或在启动 Web 服务前导出 `ZCODE_API_KEY`，或先用 `zcode login` 登录；桌面版已登录的机器上，harness 会自动复用该密钥。
-
-思考深度（GLM-5.x 为 `low`、`high`、`max`）与其他后端一样按角色逐级生效：
-
-```bash
-lh-harness run --task @task.md --agent zcode --model glm-5.3 --reasoning-effort high
-```
-
-无头 ZCode 没有效果档位开关：档位保存在它的会话数据库里，因此 harness 会为每次运行播种一份隔离副本，绝不改动 `~/.zcode`。让档位真正到达请求所需的 provider 声明，由 harness 写入工作区内的 `.zcode/config.json`（权限 0600，且绝不覆盖已有文件）；未配置密钥时回退到环境变量路径，此时档位不会生效。
-
 之后就可以继续使用原来的 LongHorizon-Harness 命令：
 
 ```bash
@@ -308,7 +289,7 @@ export DEEPSEEK_API_KEY="sk-..."
 lh-harness web --workspace-root .
 ```
 
-适配器通过 `dsh --profile headless` 运行，每次 run 使用隔离的 `DSH_HOME`；Executor 使用 `workspace-write`，Manager 和 Auditor 使用 `read-only`。`--api-key` 会映射到 `DEEPSEEK_API_KEY`，`--base-url` 会映射到 `DEEPSEEK_BASE_URL`，也可用 `LH_HARNESS_DSH_BINARY` 指定不在 `PATH` 上的二进制。DeepSeek Harness 仍处于 developer preview；第一阶段暂不接入它的 Web UI、computer-use 插件、MCP 配置或 `--mcp-add-dir`。目前 headless profile 只返回最终答案，因此 DeepSeek 的中间 tool event 不会实时进入 trajectory；上游任务接口采用位置参数，episode 运行期间任务文本也会出现在子进程参数列表中。 思考深度（`low`、`high`、`max`）通过 `llm-deepseek` 补丁层覆盖传入，原样到达服务方。
+适配器通过 `dsh --profile headless` 运行，每次 run 使用隔离的 `DSH_HOME`；Executor 使用 `workspace-write`，Manager 和 Auditor 使用 `read-only`。`--api-key` 会映射到 `DEEPSEEK_API_KEY`，`--base-url` 会映射到 `DEEPSEEK_BASE_URL`，也可用 `LH_HARNESS_DSH_BINARY` 指定不在 `PATH` 上的二进制。DeepSeek Harness 仍处于 developer preview；第一阶段暂不接入它的 Web UI、computer-use 插件、MCP 配置或 `--mcp-add-dir`。目前 headless profile 只返回最终答案，因此 DeepSeek 的中间 tool event 不会实时进入 trajectory；上游任务接口采用位置参数，episode 运行期间任务文本也会出现在子进程参数列表中。
 
 Agent 直接在你启动命令的那个目录里工作，任务作用于你的真实项目。需要换到别处时设置 `workspace` 或 `--workspace`。`./.lh-harness/` 本身会被排除在外，本次运行自己的日志和状态不会被当成任务内容。
 
@@ -346,7 +327,7 @@ lh-harness check-update
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `agent` | `"codex"` | 所有角色使用的后端（角色可单独覆盖）：`codex`、`claude_code`、`opencode`、`deepseek_harness` 或 `zcode`。 |
+| `agent` | `"codex"` | 所有角色使用的后端（角色可单独覆盖）：`codex`、`claude_code`、`opencode` 或 `deepseek_harness`。 |
 | `model` | `"gpt-5.6-sol"` | 所有角色使用的模型（角色可单独覆盖）。必须是所选后端支持的模型。 |
 | `reasoning_effort` | 默认注释 | 所有角色的推理强度（角色可单独覆盖），转发给支持该能力的后端。不设置则沿用服务方自身的默认值。 |
 | `env` | `"local"` | 执行环境，目前只有 `local`。 |
@@ -359,12 +340,9 @@ lh-harness check-update
 | `claude_mcp_config` | 默认注释 | Claude Code 用的 `.mcp.json` 路径，会覆盖已安装的插件。 |
 | `codex_mcp_config` | 默认注释 | Codex 用的 `[mcp_servers.*]` TOML 路径，会覆盖已安装的插件。 |
 | `mcp_add_dirs` | `[]` | 额外允许 MCP server 读取的目录。Claude Code 会拒绝该项，因为其角色隔离要求任务文件必须放在工作目录内。 |
-| `guard_exclude_paths` | `[]` | Auditor 只读 guard 在快照时跳过的工作区路径，用于会自行变动的构建产物和缓存，例如 `["target", "node_modules", ".venv"]`。Agent 仍可正常访问这些路径。 |
-| `max_rounds` | `25` | Manage-Execute-Audit 循环的最大轮数，达到即停止。 |
+| `max_rounds` | `30` | Manage-Execute-Audit 循环的最大轮数，达到即停止。 |
 | `dashboard` | `true` | 每次运行时启动 Web Dashboard。 |
 | `dashboard_port` | `0` | Dashboard 端口，`0` 表示由系统分配空闲端口。 |
-
-`guard_exclude_paths` 中的每一项都是审计的缺口：guard 是工作区改动的唯一见证者，而被排除的路径 Agent 仍可通过 Bash 读写。只排除构建产物，不要排除源码。路径相对工作目录解析并且必须留在工作目录内；`.git` 以及 Harness 自身的控制与状态目录会被拒绝，遇到第一个违规项时运行直接终止。最终生效的列表会在运行开始时打印，并记录在每个审计 episode 的 metadata 字段 `verifier_guard_exclude_paths` 中。对应的 CLI 参数 `--guard-exclude-path` 可重复传入；只要用了它，就会替换配置中的列表，而不是在其基础上追加。
 
 ##### `[run.timeouts]`
 
@@ -514,10 +492,9 @@ lh-harness web --workspace-root .               # 为指定目录启动工作台
 | 参数 | 说明 |
 |---|---|
 | `--task` | 任务文本或 `@task.md` |
-| `--agent` | `claude_code`、`codex`、`opencode`、`deepseek_harness`（第一阶段仅 CLI）或 `zcode` |
+| `--agent` | `claude_code`、`codex`、`opencode` 或 `deepseek_harness`（第一阶段仅 CLI） |
 | `--env` | `local` |
-| `--max-rounds` | Manage-Execute-Audit 循环的最大轮数；CLI 默认为 25 |
-| `--reasoning-effort` | 所有角色的推理强度（ZCode 的 GLM-5.x 为 `low`/`high`/`max`），可按角色单独覆盖 |
+| `--max-rounds` | Manage-Execute-Audit 循环的最大轮数；CLI 默认为 30 |
 | `--dashboard` | 启动实时监控和人工介入功能 |
 | `--no-dashboard` | 关闭项目配置中默认启用的 Dashboard |
 
