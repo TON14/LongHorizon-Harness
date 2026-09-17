@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -82,7 +83,9 @@ def test_zcode_adapter_builds_runner_command_and_env(
     # model must NOT also come from ZCODE_MODEL: the env-configured provider
     # would win and silently drop the effort dial.
     assert "ZCODE_MODEL" not in adapter.env
-    assert adapter.env["ZCODE_SESSION_DB_PATH"].endswith("zcode-db/session.db")
+    session_db = Path(adapter.env["ZCODE_SESSION_DB_PATH"])
+    assert session_db.parent.name == "zcode-db"
+    assert session_db.name == "session.db"
     assert adapter.project_config == "created"
     config = json.loads((workspace / ".zcode" / "config.json").read_text(encoding="utf-8"))
     assert config["model"]["main"] == "zai/glm-5.3"
@@ -106,7 +109,11 @@ def test_zcode_project_config_permissions_and_reuse(
         prompt_dir=str(prompt_dir),
     )
     config_path = workspace / ".zcode" / "config.json"
-    assert oct(config_path.stat().st_mode & 0o777) == "0o600"
+    if os.name == "nt":
+        # chmod is advisory on Windows; existence is all it guarantees.
+        assert config_path.is_file()
+    else:
+        assert oct(config_path.stat().st_mode & 0o777) == "0o600"
     assert ".zcode" in first.hidden_paths
 
     config_path.write_text('{"model": {"main": "custom/model"}}', encoding="utf-8")
