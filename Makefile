@@ -22,7 +22,7 @@ WEB         := frontend/web
 # PYTHON_MIN tracks pyproject's requires-python; NODE_MIN tracks the Node
 # version .github/workflows/release.yml provisions to build the Web bundle.
 PYTHON_MIN  := 3.14
-NODE_MIN    := 22
+NODE_MIN    := 24
 
 .DEFAULT_GOAL := help
 .PHONY: help install install-py install-web check test test-py test-web \

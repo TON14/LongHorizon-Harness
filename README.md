@@ -191,7 +191,7 @@ Steps 1–2 are once per machine; step 3 is once per project. Then run tasks fro
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | The recommended isolated install. Skip it if you prefer pip. |
 | Python 3.14 or later | Running the harness. `uv tool install` brings its own; a pip install uses yours. |
 | One agent runtime on `PATH`: [`codex`](https://github.com/openai/codex#installing-and-running-codex-cli), [`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started), [`opencode`](https://github.com/anomalyco/opencode), [`dsh`](https://github.com/deepseek-ai/deepseek-harness), or the ZCode desktop install (its bundled headless runtime is discovered automatically) | Actually executing the work. Install more than one if you want to mix backends across roles. |
-| [Node.js](https://nodejs.org) 22 or later | The npm-distributed computer-use plugins. DeepSeek Harness itself currently requires Node.js `^22.19.0` or `>=24.0.0`. |
+| [Node.js](https://nodejs.org) 24 or later | The npm-distributed computer-use plugins. DeepSeek Harness itself currently requires Node.js `^22.19.0` or `>=24.0.0`. |
 
 > **Platform status:** Tested on macOS and Windows. Agent CLIs are launched as plain subprocesses — no shell is involved — so command construction behaves identically on every platform. On Windows the harness also escapes the 260-character `MAX_PATH` limit automatically, which run directories reach easily on a deep project path.
 
@@ -221,7 +221,7 @@ Using Claude Code, or both agents:
 lh-harness plugin install open-computer-use
 ```
 
-`codex-computer-use` is the official plugin bundled with the Codex CLI and only works with Codex. `open-computer-use` is distributed on npm, needs Node.js 22+, and drives both agents. Both need OS permissions that **must be granted by hand on macOS**. See [Manage computer-use plugins](#manage-computer-use-plugins) for that, for `clawdcursor` as a third option, and for how each one is wired.
+`codex-computer-use` is the official plugin bundled with the Codex CLI and only works with Codex. `open-computer-use` is distributed on npm, needs Node.js 24+, and drives both agents. Both need OS permissions that **must be granted by hand on macOS**. See [Manage computer-use plugins](#manage-computer-use-plugins) for that, for `clawdcursor` as a third option, and for how each one is wired.
 
 #### 3. Generate a project configuration
 

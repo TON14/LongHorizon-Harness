@@ -192,7 +192,7 @@ LongHorizon-Harness 不只展示了几个精心挑选的成功案例。
 | [uv](https://docs.astral.sh/uv/getting-started/installation/) | 推荐的隔离安装方式。习惯用 pip 可以不装。 |
 | Python 3.14 或更高版本 | 运行 Harness。`uv tool install` 自带 Python；用 pip 安装则使用你当前的。 |
 | `PATH` 上有一个 Agent 运行时：[`codex`](https://github.com/openai/codex#installing-and-running-codex-cli)、[`claude`](https://docs.anthropic.com/en/docs/claude-code/getting-started)、[`opencode`](https://github.com/anomalyco/opencode)、[`dsh`](https://github.com/deepseek-ai/deepseek-harness)，或 ZCode 桌面版安装（自带的 headless 运行时会被自动发现） | 真正执行任务。想按角色混用多个后端就安装多个。 |
-| [Node.js](https://nodejs.org) 22 或更高版本 | npm 分发的 computer-use 插件需要；DeepSeek Harness 本身目前要求 Node.js `^22.19.0` 或 `>=24.0.0`。 |
+| [Node.js](https://nodejs.org) 24 或更高版本 | npm 分发的 computer-use 插件需要；DeepSeek Harness 本身目前要求 Node.js `^22.19.0` 或 `>=24.0.0`。 |
 
 > **平台状态：** 已在 macOS 和 Windows 上测试。Agent CLI 以普通子进程方式启动，不经过 shell，因此命令构造在所有平台上行为一致。在 Windows 上还会自动绕开 260 字符的 `MAX_PATH` 限制——项目路径较深时，运行目录很容易超过这个长度。
 
@@ -222,7 +222,7 @@ lh-harness plugin install codex-computer-use
 lh-harness plugin install open-computer-use
 ```
 
-`codex-computer-use` 是 Codex CLI 自带的官方插件，只支持 Codex。`open-computer-use` 通过 npm 分发，需要 Node.js 22+，两个 Agent 都能驱动。两者都需要系统权限，且 **macOS 上必须手动授予**。相关说明、第三个可选插件 `clawdcursor`，以及各自的接线方式，见[管理 computer-use 插件](#管理-computer-use-插件)。
+`codex-computer-use` 是 Codex CLI 自带的官方插件，只支持 Codex。`open-computer-use` 通过 npm 分发，需要 Node.js 24+，两个 Agent 都能驱动。两者都需要系统权限，且 **macOS 上必须手动授予**。相关说明、第三个可选插件 `clawdcursor`，以及各自的接线方式，见[管理 computer-use 插件](#管理-computer-use-插件)。
 
 #### 3. 生成项目配置
 
