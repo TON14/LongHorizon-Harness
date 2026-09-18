@@ -2,36 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
 
-# What the positional task says when the real prompt rides in as an
-# attachment. Deliberately explicit: if the CLI ever stopped reading the
-# attachment, this is what the model would receive as its whole task, and
-# it should scream misconfiguration rather than pass as a plausible one.
-ATTACHED_TASK_INSTRUCTION = (
-    "Your complete task is the attached prompt file. Read it in full and "
-    "carry it out exactly as written; the attachment is the task itself, "
-    "not a reference document."
-)
-
-
-def _node_command(script: str) -> list[str]:
-    """A .cjs bundle cannot be executed directly on Windows (no shebangs),
-    so route it through node everywhere; on POSIX both routes are
-    equivalent."""
-    if not script.endswith(".cjs"):
-        return [script]
-    node = shutil.which("node") or shutil.which(
-        "node.exe", path=r"C:\Program Files\nodejs;" + (os.environ.get("PATH", ""))
-    )
-    if not node:
-        raise OSError("node was not found on PATH; it is required to run the ZCode .cjs bundle")
-    return [node, script]
+from lhht.adapters.zcode_protocol import ProtocolError, run_episode
 
 
 def _emit_result(
@@ -59,63 +34,27 @@ def _emit_result(
     sys.stdout.flush()
 
 
-def _final_response(stdout: str) -> tuple[str, str, dict | None]:
-    """Read the assistant reply out of ``--json`` output.
-
-    A successful headless run prints one JSON object whose ``response`` field
-    is the final answer; the CLI pretty-prints it across many lines. Anything
-    unparseable keeps its raw stdout as the episode text, so evidence is never
-    lost to a formatting change.
-    """
-    for candidate in (stdout, _outermost_json(stdout)):
-        if not candidate.lstrip().startswith("{"):
-            continue
-        try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        response = payload.get("response")
-        session_id = payload.get("sessionId")
-        usage = payload.get("usage")
-        return (
-            response if isinstance(response, str) else "",
-            session_id if isinstance(session_id, str) else "",
-            usage if isinstance(usage, dict) else None,
-        )
-    return (stdout.strip(), "", None)
-
-
-def _outermost_json(stdout: str) -> str:
-    start = stdout.find("{")
-    end = stdout.rfind("}")
-    if 0 <= start < end:
-        return stdout[start : end + 1]
-    return ""
-
-
 def run(
     binary: str,
     prompt_path: Path,
     model: str,
     *,
     mode: str = "yolo",
-    task_via_attach: bool | None = None,
+    thought_level: str = "high",
+    workspace: str,
+    server_args: Sequence[str] = ("app-server", "--stdio"),
 ) -> int:
-    """Bridge one episode to the ZCode headless CLI.
+    """Bridge one episode to the ZCode Protocol app-server.
 
-    The shared adapter plumbing delivers the prompt as a file and over stdin;
-    ZCode only accepts a headless task as a ``-p`` argument, so this bridge
-    reads the file and re-launches the CLI with the task in argv -- the same
-    contract ``deepseek_runner`` has with ``dsh``. Windows caps the whole
-    command line at 32767 characters and role prompts run 30-40 KB, so there
-    the task travels as a ``--attach`` file with an explicit instruction
-    instead. ``task_via_attach`` picks the delivery; ``None`` follows the
-    platform so the test suite exercises both everywhere.
+    ZCode 0.16.x headless ``-p`` runs cannot resolve a model ("Select a model
+    before continuing"), so episodes go through ``zcode.cjs app-server
+    --stdio`` instead: ``session/create`` pins the model and the role's
+    reasoning level, ``session/send`` carries the task, and the transcript is
+    polled until the assistant reply completes. The prompt travels inside the
+    JSON body, so the Windows command-line length ceiling never applies.
+    ``server_args`` replaces the app-server invocation; tests inject a fake
+    protocol server there.
     """
-    if task_via_attach is None:
-        task_via_attach = os.name == "nt"
     try:
         prompt = prompt_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -124,62 +63,39 @@ def run(
         _emit_result(is_error=True, exit_code=2, error=message)
         return 2
 
-    try:
-        launcher = _node_command(binary)
-    except OSError as exc:
-        sys.stderr.write(f"{exc}\n")
-        _emit_result(is_error=True, exit_code=127, error=str(exc))
-        return 127
+    from lhht.utils.agent_cli import zcode_spawn_command
 
-    if task_via_attach:
-        command = [
-            *launcher,
-            "--json",
-            "--mode",
-            mode,
-            "--attach",
-            str(prompt_path),
-            "-p",
-            ATTACHED_TASK_INSTRUCTION,
-        ]
-    else:
-        command = [*launcher, "--json", "--mode", mode, "-p", prompt]
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+        episode = run_episode(
+            argv=zcode_spawn_command(binary, list(server_args)),
+            workspace_path=workspace,
+            workspace_key=workspace,
+            provider_id="zai-direct",
+            model_id=model,
+            reasoning_level=thought_level,
+            thought_level=thought_level,
+            mode=mode,
+            content=prompt,
         )
+    except ProtocolError as exc:
+        message = str(exc)
+        sys.stderr.write(message + "\n")
+        _emit_result(is_error=True, exit_code=1, error=message)
+        return 1
     except OSError as exc:
-        message = f"could not start ZCode binary {binary!r}: {exc}"
+        message = f"could not start ZCode app-server {binary!r}: {exc}"
         sys.stderr.write(message + "\n")
         _emit_result(is_error=True, exit_code=127, error=message)
         return 127
 
-    stdout = completed.stdout or ""
-    if completed.returncode == 0:
-        text, session_id, usage = _final_response(stdout)
-        _emit_result(
-            text=text,
-            is_error=False,
-            exit_code=0,
-            session_id=session_id,
-            usage=usage,
-        )
-    else:
-        # `--json` is only promised for successful runs; on failure the CLI
-        # writes a human-readable error, which stderr already carries.
-        _emit_result(
-            text=stdout.strip(),
-            is_error=True,
-            exit_code=completed.returncode,
-            error=(completed.stderr or "").strip()[-2000:],
-        )
-    return completed.returncode
+    _emit_result(
+        text=episode.get("text", ""),
+        is_error=False,
+        exit_code=0,
+        session_id=episode.get("session_id", ""),
+        usage=episode.get("usage"),
+    )
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -188,7 +104,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--mode", default="yolo")
-    parser.add_argument("--task-via-attach", action="store_true", default=None)
+    parser.add_argument("--thought-level", default="high")
+    parser.add_argument("--workspace", required=True)
     return parser
 
 
@@ -199,7 +116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         Path(args.prompt),
         args.model,
         mode=args.mode,
-        task_via_attach=args.task_via_attach,
+        thought_level=args.thought_level,
+        workspace=args.workspace,
     )
 
 

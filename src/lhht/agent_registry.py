@@ -46,7 +46,7 @@ class ReasoningSpec:
     the second case is verified.
     """
 
-    transport: Literal["codex_config", "cli_flag", "session_db", "patch_layer"]
+    transport: Literal["codex_config", "cli_flag", "session_db", "patch_layer", "protocol"]
     flag: str
     scope: Literal["per_model", "per_agent"]
     source: Literal["model_catalog", "cli_help", "declared"]
@@ -143,12 +143,13 @@ AGENT_SPECS: tuple[AgentSpec, ...] = (
         default_model=DEFAULT_ZCODE_MODEL,
         capabilities=frozenset({"cli"}),
         reasoning=ReasoningSpec(
-            # Headless ZCode has no effort flag: the level lives in a
-            # `local_setting` row of its session database, which the adapter
-            # seeds in an isolated per-run copy. An unknown level is silently
-            # ignored by the CLI, so the adapter pre-validates the zai ones.
-            transport="session_db",
-            flag="reasoningLevel",
+            # The effort rides in the app-server protocol: session/create
+            # takes an explicit options.reasoningLevel and a thought level
+            # per session, so every role gets exactly the depth it asks for.
+            # The provider config declares low/high/max for the model, and an
+            # unknown level is rejected by the adapter before any spawn.
+            transport="protocol",
+            flag="thoughtLevel",
             scope="per_model",
             source="declared",
             declared_choices=ZCODE_EFFORT_LEVELS,
