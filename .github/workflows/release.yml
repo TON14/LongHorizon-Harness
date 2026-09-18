@@ -122,3 +122,47 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  pypi:
+    name: 🚀 Publish to PyPI
+    # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
+    # there is no token in this repository to leak. The link is registered
+    # on pypi.org (pending publisher: project lhht, TON14/LongHorizon-Harness,
+    # workflow release.yml, environment pypi).
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/lhht
+    permissions:
+      id-token: write
+    steps:
+      - name: 📥 Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: 🚀 Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: 🏷️ Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 📥 Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: 🏷️ Publish release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
