@@ -13,7 +13,7 @@ import os
 
 import pytest
 
-from lh_harness.supervisor import control_bus
+from lhht.supervisor import control_bus
 
 
 def _reader_close_harness(monkeypatch, close_error: OSError | None):

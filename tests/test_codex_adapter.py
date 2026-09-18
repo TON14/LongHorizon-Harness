@@ -7,15 +7,15 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from lh_harness.adapters import codex as codex_adapter_module
-from lh_harness.adapters.codex import CodexAdapter
-from lh_harness.utils import agent_cli
-from lh_harness.utils.agent_cli import (
+from lhht.adapters import codex as codex_adapter_module
+from lhht.adapters.codex import CodexAdapter
+from lhht.utils import agent_cli
+from lhht.utils.agent_cli import (
     is_agent_binary_available,
     resolve_agent_binary,
     resolve_codex_binary,
 )
-from lh_harness.webapi import server as web_server
+from lhht.webapi import server as web_server
 
 from .fake_cli import fake_cli
 
@@ -35,7 +35,7 @@ def _executable(path: Path) -> str:
     [
         (
             {
-                "LH_HARNESS_CODEX_BINARY": "/custom/LH Codex/codex",
+                "LHHT_CODEX_BINARY": "/custom/LH Codex/codex",
                 "CODEX_CLI_PATH": "/custom/CLI Codex/codex",
             },
             "/custom/LH Codex/codex",
@@ -46,7 +46,7 @@ def _executable(path: Path) -> str:
         ),
         (
             {
-                "LH_HARNESS_CODEX_BINARY": "   ",
+                "LHHT_CODEX_BINARY": "   ",
                 "CODEX_CLI_PATH": "/custom/CLI Codex/codex",
             },
             "/custom/CLI Codex/codex",
@@ -63,7 +63,7 @@ def test_codex_binary_environment_precedence(
 def test_shared_agent_resolver_applies_codex_policy() -> None:
     selected = resolve_agent_binary(
         "codex",
-        environ={"LH_HARNESS_CODEX_BINARY": "/custom/Codex Desktop/codex"},
+        environ={"LHHT_CODEX_BINARY": "/custom/Codex Desktop/codex"},
         platform_name="linux",
     )
 

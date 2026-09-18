@@ -62,11 +62,11 @@ jobs:
         run: npm test --prefix frontend/web
 
       - name: 🖥️ Build Web frontend
-        # Vite writes straight into src/lh_harness/_frontend/web/dist.
+        # Vite writes straight into src/lhht/_frontend/web/dist.
         run: npm run build --prefix frontend/web
 
       - name: 🔍 Verify the Web bundle was produced
-        run: test -f src/lh_harness/_frontend/web/dist/index.html
+        run: test -f src/lhht/_frontend/web/dist/index.html
 
       - name: 🧪 Run Python tests
         run: python -m pip install -e '.[test]' && python -m pytest -q
@@ -90,7 +90,7 @@ jobs:
           archive = sorted(glob.glob("dist/*.tar.gz"))[0]
           with tarfile.open(archive) as bundle:
               names = bundle.getnames()
-          prefix = "src/lh_harness/_frontend/web/dist/"
+          prefix = "src/lhht/_frontend/web/dist/"
           assets = [name for name in names if prefix in name]
           assert any(name.endswith("/index.html") for name in assets), assets
           assert len(assets) > 1, assets
@@ -103,8 +103,8 @@ jobs:
           trap 'rm -rf "$smoke_dir"' EXIT
           python -m venv "$smoke_dir/venv"
           "$smoke_dir/venv/bin/pip" install --no-deps dist/*.whl
-          "$smoke_dir/venv/bin/python" -c 'import lh_harness; print(lh_harness.__version__)'
-          "$smoke_dir/venv/bin/python" -c 'from pathlib import Path; import lh_harness; p=Path(lh_harness.__file__).parent/"_frontend"/"web"/"dist"; assert (p/"index.html").is_file(), p; assert sum(item.is_file() for item in p.rglob("*")) > 1, p; print(p)'
+          "$smoke_dir/venv/bin/python" -c 'import lhht; print(lhht.__version__)'
+          "$smoke_dir/venv/bin/python" -c 'from pathlib import Path; import lhht; p=Path(lhht.__file__).parent/"_frontend"/"web"/"dist"; assert (p/"index.html").is_file(), p; assert sum(item.is_file() for item in p.rglob("*")) > 1, p; print(p)'
 
       - name: 🏷️ Verify tag matches project version
         if: startsWith(github.ref, 'refs/tags/v')

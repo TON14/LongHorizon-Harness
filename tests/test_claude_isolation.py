@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from lh_harness.adapters.claude_code import ClaudeCodeAdapter
-from lh_harness.adapters.claude_isolation import (
+from lhht.adapters.claude_code import ClaudeCodeAdapter
+from lhht.adapters.claude_isolation import (
     SKILLS_PLUGIN_NAME,
     build_skills_plugin,
     resolve_plugin_dirs,
@@ -70,7 +70,7 @@ def test_isolation_alone_drops_the_account_layer_only(tmp_path):
 def test_allow_lists_imply_isolation(tmp_path, monkeypatch):
     home = _claude_home(tmp_path, skills=("graphify",))
     monkeypatch.setattr(
-        "lh_harness.adapters.claude_isolation.default_claude_home", lambda: home
+        "lhht.adapters.claude_isolation.default_claude_home", lambda: home
     )
     adapter = ClaudeCodeAdapter(
         workspace_path=str(tmp_path),
@@ -146,7 +146,7 @@ def test_adapter_passes_every_allowed_dir_to_the_cli(tmp_path, monkeypatch):
     install = tmp_path / "cache" / "playwright" / "1.0.0"
     home = _claude_home(tmp_path, plugins={"playwright@official": install}, skills=("graphify",))
     monkeypatch.setattr(
-        "lh_harness.adapters.claude_isolation.default_claude_home", lambda: home
+        "lhht.adapters.claude_isolation.default_claude_home", lambda: home
     )
     adapter = ClaudeCodeAdapter(
         workspace_path=str(tmp_path),

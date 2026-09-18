@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from lh_harness.prompt_texts import AUDITOR_CONTRACT_BACKCHECK, TASK_CONTRACT_RULES
-from lh_harness.role_prompts import (
+from lhht.prompt_texts import AUDITOR_CONTRACT_BACKCHECK, TASK_CONTRACT_RULES
+from lhht.role_prompts import (
     MANAGER_NEXT_CLI,
     MANAGER_NEXT_DONE,
     build_role_auditor_prompt,
@@ -12,7 +12,7 @@ from lh_harness.role_prompts import (
     build_role_manager_prompt,
     parse_role_manager_next_step,
 )
-from lh_harness.types import ManagedRound
+from lhht.types import ManagedRound
 
 
 @pytest.mark.parametrize("language", ["en", "zh"])

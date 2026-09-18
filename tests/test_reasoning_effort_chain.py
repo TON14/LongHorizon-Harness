@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from lh_harness.adapters.claude_code import ClaudeCodeAdapter
-from lh_harness.adapters.codex import CodexAdapter
-from lh_harness.adapters.deepseek_harness import DeepSeekHarnessAdapter
-from lh_harness.adapters.opencode import OpenCodeAdapter
-from lh_harness.cli import _resolve_role_reasoning_effort
-from lh_harness.config import ProjectConfigError, load_run_defaults
-from lh_harness.supervisor.service import _normalise_role_configs
+from lhht.adapters.claude_code import ClaudeCodeAdapter
+from lhht.adapters.codex import CodexAdapter
+from lhht.adapters.deepseek_harness import DeepSeekHarnessAdapter
+from lhht.adapters.opencode import OpenCodeAdapter
+from lhht.cli import _resolve_role_reasoning_effort
+from lhht.config import ProjectConfigError, load_run_defaults
+from lhht.supervisor.service import _normalise_role_configs
 
 
 def _codex(**kwargs) -> CodexAdapter:
@@ -87,7 +87,7 @@ def test_adapters_reject_effort_values_that_could_break_the_command(value: str) 
 def test_deepseek_accepts_an_effort_for_the_patch_layer(
     monkeypatch, tmp_path
 ) -> None:
-    from lh_harness.adapters import deepseek_harness as deepseek_adapter_module
+    from lhht.adapters import deepseek_harness as deepseek_adapter_module
 
     monkeypatch.setattr(
         deepseek_adapter_module, "resolve_dsh_binary", lambda: str(tmp_path / "dsh")
@@ -191,7 +191,7 @@ def test_supervisor_rejects_a_malformed_role_effort() -> None:
 
 
 def test_worker_command_forwards_the_role_effort(tmp_path: Path) -> None:
-    from lh_harness.supervisor.service import RunSupervisor
+    from lhht.supervisor.service import RunSupervisor
 
     supervisor = RunSupervisor(tmp_path / "runs", workspace_root=tmp_path)
     command = supervisor._worker_command(
@@ -214,7 +214,7 @@ def test_worker_command_forwards_the_role_effort(tmp_path: Path) -> None:
 
 
 def test_worker_command_forwards_a_global_effort_without_role_configs(tmp_path: Path) -> None:
-    from lh_harness.supervisor.service import RunSupervisor
+    from lhht.supervisor.service import RunSupervisor
 
     supervisor = RunSupervisor(tmp_path / "runs", workspace_root=tmp_path)
     command = supervisor._worker_command(

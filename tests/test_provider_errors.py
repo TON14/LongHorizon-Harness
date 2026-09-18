@@ -1,7 +1,7 @@
 """Classification boundaries for terminal agent-CLI failures."""
 
-from lh_harness.provider_errors import classify_agent_runtime_failure
-from lh_harness.types import EpisodeResult
+from lhht.provider_errors import classify_agent_runtime_failure
+from lhht.types import EpisodeResult
 
 
 def test_guard_snapshot_failure_is_not_a_runtime_failure():
@@ -43,7 +43,7 @@ def test_plain_provider_error_is_still_terminal():
 def _guard_rejected_result(**overrides):
     """An episode whose audit the guard rejected fail-closed."""
 
-    from lh_harness.provider_errors import GUARD_REJECTION_MESSAGE
+    from lhht.provider_errors import GUARD_REJECTION_MESSAGE
 
     fields = {
         "status": "error",
@@ -77,7 +77,7 @@ def test_guard_rejection_does_not_hide_authentication_failure():
     exhausted instead of surfacing the real authentication problem.
     """
 
-    from lh_harness.provider_errors import GUARD_REJECTION_MESSAGE
+    from lhht.provider_errors import GUARD_REJECTION_MESSAGE
 
     result = _guard_rejected_result(
         error=f"401 Unauthorized: invalid api key\n{GUARD_REJECTION_MESSAGE}",

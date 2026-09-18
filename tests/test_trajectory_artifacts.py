@@ -4,7 +4,7 @@ import base64
 import json
 from pathlib import Path
 
-from lh_harness.trajectory_artifacts import (
+from lhht.trajectory_artifacts import (
     StreamingTrajectoryArtifactWriter,
     persist_trajectory_artifacts,
 )

@@ -9,17 +9,17 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from lh_harness import agent_logs
-from lh_harness.adapters import deepseek_harness as deepseek_adapter_module
-from lh_harness.adapters.deepseek_harness import (
+from lhht import agent_logs
+from lhht.adapters import deepseek_harness as deepseek_adapter_module
+from lhht.adapters.deepseek_harness import (
     DeepSeekHarnessAdapter,
     permission_mode_for_role,
 )
-from lh_harness.adapters.deepseek_runner import TASK_PLACEHOLDER, run
-from lh_harness.environment.local import LocalEnvironment
-from lh_harness.types import EpisodeBudget
-from lh_harness.utils.agent_cli import resolve_dsh_binary
-from lh_harness.webapi import server as web_server
+from lhht.adapters.deepseek_runner import TASK_PLACEHOLDER, run
+from lhht.environment.local import LocalEnvironment
+from lhht.types import EpisodeBudget
+from lhht.utils.agent_cli import resolve_dsh_binary
+from lhht.webapi import server as web_server
 
 from .fake_cli import fake_cli as _executable
 
@@ -27,7 +27,7 @@ from .fake_cli import fake_cli as _executable
 def test_dsh_binary_environment_override() -> None:
     assert (
         resolve_dsh_binary(
-            environ={"LH_HARNESS_DSH_BINARY": "/custom/DeepSeek Harness/dsh"},
+            environ={"LHHT_DSH_BINARY": "/custom/DeepSeek Harness/dsh"},
             platform_name="linux",
         )
         == "/custom/DeepSeek Harness/dsh"
@@ -56,7 +56,7 @@ def test_deepseek_adapter_quotes_binary_and_configures_isolated_home(
     argv = adapter.argv
     assert adapter.env["DSH_HOME"] == "/tmp/run with spaces/dsh-home"
     assert adapter.env["DSH_PERMISSION_MODE"] == "read-only"
-    assert "lh_harness.adapters.deepseek_runner" in argv
+    assert "lhht.adapters.deepseek_runner" in argv
     assert argv[argv.index("--binary") + 1] == binary
     assert adapter.permission_mode == "read-only"
 

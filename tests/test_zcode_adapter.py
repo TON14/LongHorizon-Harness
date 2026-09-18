@@ -8,14 +8,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from lh_harness import agent_logs
-from lh_harness.adapters import zcode as zcode_adapter_module
-from lh_harness.adapters.zcode import ZCodeAdapter, permission_mode_for_role
-from lh_harness.adapters.zcode_runner import run
-from lh_harness.environment.local import LocalEnvironment
-from lh_harness.types import EpisodeBudget
-from lh_harness.utils.agent_cli import resolve_zcode_binary
-from lh_harness.webapi import server as web_server
+from lhht import agent_logs
+from lhht.adapters import zcode as zcode_adapter_module
+from lhht.adapters.zcode import ZCodeAdapter, permission_mode_for_role
+from lhht.adapters.zcode_runner import run
+from lhht.environment.local import LocalEnvironment
+from lhht.types import EpisodeBudget
+from lhht.utils.agent_cli import resolve_zcode_binary
+from lhht.webapi import server as web_server
 
 from .fake_cli import fake_cli as _executable
 
@@ -34,7 +34,7 @@ def _no_desktop_credentials(monkeypatch):
 def test_zcode_binary_environment_override() -> None:
     assert (
         resolve_zcode_binary(
-            environ={"LH_HARNESS_ZCODE_BINARY": "/custom/ZCode/zcode.cjs"},
+            environ={"LHHT_ZCODE_BINARY": "/custom/ZCode/zcode.cjs"},
             platform_name="linux",
         )
         == "/custom/ZCode/zcode.cjs"
@@ -42,7 +42,7 @@ def test_zcode_binary_environment_override() -> None:
 
 
 def test_zcode_reasoning_is_declared_per_model() -> None:
-    from lh_harness.agent_registry import agent_spec, supports_reasoning_effort
+    from lhht.agent_registry import agent_spec, supports_reasoning_effort
 
     spec = agent_spec("zcode")
     assert supports_reasoning_effort("zcode") is True
@@ -75,7 +75,7 @@ def test_zcode_adapter_builds_runner_command_and_env(
     )
 
     argv = adapter.argv
-    assert "lh_harness.adapters.zcode_runner" in argv
+    assert "lhht.adapters.zcode_runner" in argv
     assert argv[argv.index("--binary") + 1] == binary
     assert argv[argv.index("--mode") + 1] == "plan"
     assert adapter.permission_mode == "plan"

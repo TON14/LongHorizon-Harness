@@ -7,14 +7,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from lh_harness import agent_logs
-from lh_harness.adapters import opencode as opencode_adapter_module
-from lh_harness.adapters.opencode import OpenCodeAdapter
-from lh_harness.environment.local import LocalEnvironment
-from lh_harness.provider_errors import classify_agent_runtime_failure
-from lh_harness.types import DEFAULT_OPENCODE_MODEL, EpisodeBudget, EpisodeResult
-from lh_harness.utils.agent_cli import resolve_opencode_binary
-from lh_harness.webapi import server as web_server
+from lhht import agent_logs
+from lhht.adapters import opencode as opencode_adapter_module
+from lhht.adapters.opencode import OpenCodeAdapter
+from lhht.environment.local import LocalEnvironment
+from lhht.provider_errors import classify_agent_runtime_failure
+from lhht.types import DEFAULT_OPENCODE_MODEL, EpisodeBudget, EpisodeResult
+from lhht.utils.agent_cli import resolve_opencode_binary
+from lhht.webapi import server as web_server
 
 from .fake_cli import fake_cli as _executable
 
@@ -105,7 +105,7 @@ def _raw(*records: dict) -> str:
 def test_opencode_binary_environment_override() -> None:
     assert (
         resolve_opencode_binary(
-            environ={"LH_HARNESS_OPENCODE_BINARY": "/custom/OpenCode Bin/opencode"},
+            environ={"LHHT_OPENCODE_BINARY": "/custom/OpenCode Bin/opencode"},
             platform_name="linux",
         )
         == "/custom/OpenCode Bin/opencode"

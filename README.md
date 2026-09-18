@@ -44,10 +44,11 @@ work above — install from this repository:
 pip install lhht            # or: uv tool install lhht
 ```
 
-> **Naming note:** the PyPI distribution and the console command are `lhht`,
-> while the importable Python module keeps the historical name — `import
-> lh_harness` — and the per-project state lives in `.lh-harness/`. Nothing
-> else about the tool is called lh-harness.
+> **Naming note:** the fork owns its identity end to end — the PyPI
+> distribution, the console command, the import module (`import lhht`), the
+> `LHHT_*` environment variables, and the `.lhht/` state directory are all
+> `lhht`. The original `lh-harness` installs alongside it cleanly, so both
+> can drive the same project folder for comparison.
 
 Building from source (what the development loop uses):
 
@@ -67,8 +68,8 @@ make dev-api     # control API on 127.0.0.1:8799
 make dev-web     # Vite dev server on :5173, proxying /api
 ```
 
-The tool installs as **`lhht`** (import module and the `.lh-harness/` state directory keep their
-historical names). The harness is also used to develop itself: a repo-root `.lh-harness/config.toml`
+The tool installs as **`lhht`** (import module and the `.lhht/` state directory keep their
+historical names). The harness is also used to develop itself: a repo-root `.lhht/config.toml`
 defines the roles (manager/executor on `glm-5.3-flash`, auditor on `glm-5.3`,
 effort `max`), and tasks run with `lhht run --task @task.md`. Agents edit
 the working tree; the operator reviews, runs `make check`, and commits.

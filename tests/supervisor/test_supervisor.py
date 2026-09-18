@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from lh_harness.supervisor.service import RunSupervisor
-from lh_harness.webapi.server import create_app
+from lhht.supervisor.service import RunSupervisor
+from lhht.webapi.server import create_app
 
 
 class FakeProcess:
@@ -20,7 +20,7 @@ class FakeProcess:
 
 def test_supervisor_creates_owned_run_without_touching_manager(monkeypatch, tmp_path: Path) -> None:
     process = FakeProcess()
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
     root = tmp_path / "runs"
     supervisor = RunSupervisor(root, workspace_root=tmp_path / "workspace")
     result = supervisor.create_run(task="inspect the project", max_rounds=2)
@@ -35,8 +35,8 @@ def test_supervisor_creates_owned_run_without_touching_manager(monkeypatch, tmp_
 
 def test_web_supervisor_exposes_create_and_lifecycle_routes(monkeypatch, tmp_path: Path) -> None:
     process = FakeProcess()
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
-    monkeypatch.setattr("lh_harness.supervisor.service.deliver_signal", lambda *args, **kwargs: None)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("lhht.supervisor.service.deliver_signal", lambda *args, **kwargs: None)
     root = tmp_path / "runs"
     supervisor = RunSupervisor(root, workspace_root=tmp_path / "workspace")
     client = TestClient(create_app(runs_root=root, supervisor=supervisor))
@@ -62,7 +62,7 @@ def test_web_supervisor_creates_deepseek_run_with_role_models(
     tmp_path: Path,
 ) -> None:
     process = FakeProcess()
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
     root = tmp_path / "runs"
     supervisor = RunSupervisor(root, workspace_root=tmp_path / "workspace")
     client = TestClient(create_app(runs_root=root, supervisor=supervisor))
@@ -103,8 +103,8 @@ def test_web_supervisor_creates_deepseek_run_with_role_models(
 
 def test_websocket_pushes_supervisor_lifecycle_without_role_events(monkeypatch, tmp_path: Path) -> None:
     process = FakeProcess()
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
-    monkeypatch.setattr("lh_harness.supervisor.service.deliver_signal", lambda *args, **kwargs: None)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("lhht.supervisor.service.deliver_signal", lambda *args, **kwargs: None)
     root = tmp_path / "runs"
     supervisor = RunSupervisor(root, workspace_root=tmp_path / "workspace")
     client = TestClient(create_app(runs_root=root, supervisor=supervisor))
@@ -133,7 +133,7 @@ def test_web_create_and_resume_forward_idempotency_key(monkeypatch, tmp_path: Pa
         launches.append(True)
         return process
 
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", launch)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", launch)
     root = tmp_path / "runs"
     supervisor = RunSupervisor(root, workspace_root=tmp_path / "workspace")
     client = TestClient(create_app(runs_root=root, supervisor=supervisor))
@@ -166,7 +166,7 @@ def test_web_create_and_resume_forward_idempotency_key(monkeypatch, tmp_path: Pa
 
 def test_run_summary_and_snapshot_expose_launch_provenance(monkeypatch, tmp_path: Path) -> None:
     process = FakeProcess()
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
     root = tmp_path / "runs"
     workspace = tmp_path / "workspace"
     supervisor = RunSupervisor(root, workspace_root=workspace)
@@ -217,8 +217,8 @@ def test_supervisor_shutdown_stops_owned_live_workers(monkeypatch, tmp_path: Pat
         signals.append(sig)
         process.returncode = -15
 
-    monkeypatch.setattr("lh_harness.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
-    monkeypatch.setattr("lh_harness.supervisor.service.deliver_signal", deliver)
+    monkeypatch.setattr("lhht.supervisor.service.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("lhht.supervisor.service.deliver_signal", deliver)
     supervisor = RunSupervisor(tmp_path / "runs", workspace_root=tmp_path / "workspace")
     created = supervisor.create_run(task="stop with the Web API")
 

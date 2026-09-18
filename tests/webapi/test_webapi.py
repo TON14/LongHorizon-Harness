@@ -10,12 +10,12 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from lh_harness.agent_logs import parse_trajectory
-from lh_harness.dashboard.state import DashboardState
-from lh_harness.supervisor.control_bus import ControlBus
-from lh_harness.webapi.events import EventTailer, normalize_event
-from lh_harness.webapi.server import _STATIC_DIR, create_app
-from lh_harness.webapi.snapshot import build_snapshot
+from lhht.agent_logs import parse_trajectory
+from lhht.dashboard.state import DashboardState
+from lhht.supervisor.control_bus import ControlBus
+from lhht.webapi.events import EventTailer, normalize_event
+from lhht.webapi.server import _STATIC_DIR, create_app
+from lhht.webapi.snapshot import build_snapshot
 
 
 def _fixture(tmp_path: Path, *, control_enabled: bool = True) -> tuple[Path, DashboardState]:
@@ -264,7 +264,7 @@ def test_dashboard_javascript_asset_has_valid_mime_type_on_bad_platform_mapping(
     assets_dir = static_dir / "assets"
     assets_dir.mkdir(parents=True)
     (assets_dir / "index.js").write_text("document.body.dataset.loaded = 'yes';", encoding="utf-8")
-    monkeypatch.setattr("lh_harness.webapi.server._STATIC_DIR", static_dir)
+    monkeypatch.setattr("lhht.webapi.server._STATIC_DIR", static_dir)
 
     # Simulate the Windows registry mapping without depending on the host OS.
     mimetypes.guess_type("index.js")

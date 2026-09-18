@@ -98,7 +98,7 @@ export function authHeaders(): Record<string, string> {
   }
 }
 
-const WS_AUTH_MARKER = 'lh-harness-auth.v1';
+const WS_AUTH_MARKER = 'lhht-auth.v1';
 
 /** Encode the bearer for a WebSocket subprotocol (never put it in the URL). */
 function websocketAuthProtocols(token: string): string[] {
@@ -106,7 +106,7 @@ function websocketAuthProtocols(token: string): string[] {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   const encoded = btoa(binary).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '');
-  return [WS_AUTH_MARKER, `lh-harness-token.${encoded}`];
+  return [WS_AUTH_MARKER, `lhht-token.${encoded}`];
 }
 
 export interface WebMeta {

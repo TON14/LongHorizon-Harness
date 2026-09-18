@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from lh_harness.auditor_agent import parse_audit_report
-from lh_harness.role_prompts import (
+from lhht.auditor_agent import parse_audit_report
+from lhht.role_prompts import (
     MANAGER_NEXT_ASK,
     MANAGER_NEXT_BLOCKED,
     MANAGER_NEXT_CLI,
