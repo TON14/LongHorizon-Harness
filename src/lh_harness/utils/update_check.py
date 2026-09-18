@@ -9,8 +9,8 @@ from typing import Literal
 
 from packaging.version import InvalidVersion, Version
 
-PYPI_PROJECT_URL = "https://pypi.org/project/lh-harness"
-_PYPI_JSON_URL = "https://pypi.org/pypi/lh-harness/json"
+PYPI_PROJECT_URL = "https://pypi.org/project/lhht"
+_PYPI_JSON_URL = "https://pypi.org/pypi/lhht/json"
 _MAX_RESPONSE_BYTES = 1024 * 1024
 
 
@@ -29,7 +29,7 @@ class UpdateCheckHandle:
         self._thread = threading.Thread(
             target=self._run,
             args=(current_version, timeout),
-            name="lh-harness-update-check",
+            name="lhht-update-check",
             daemon=True,
         )
         self._thread.start()
@@ -48,7 +48,7 @@ class UpdateCheckHandle:
 def check_for_update(current_version: str, *, timeout: float = 3.0) -> UpdateCheckResult:
     request = urllib.request.Request(
         _PYPI_JSON_URL,
-        headers={"Accept": "application/json", "User-Agent": f"lh-harness/{current_version}"},
+        headers={"Accept": "application/json", "User-Agent": f"lhht/{current_version}"},
     )
     try:
         with urllib.request.urlopen(request, timeout=max(0.1, timeout)) as response:

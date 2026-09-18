@@ -339,7 +339,7 @@ def _codex_app_server_models(binary: str) -> list[dict[str, Any]]:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "clientInfo": {"name": "lh-harness", "version": "0.1"},
+                    "clientInfo": {"name": "lhht", "version": "0.1"},
                     "capabilities": {"experimentalApi": True},
                 },
             },

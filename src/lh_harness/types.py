@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 
 def _launch_directory() -> str:
-    """Directory lh-harness was started from, captured once at import.
+    """Directory lhht was started from, captured once at import.
 
     Symlinks stay resolved so this agrees with the run paths derived from it,
     which the agent sandbox rules are matched against.
@@ -21,7 +21,7 @@ def _launch_directory() -> str:
 
 
 # Harness bookkeeping is user-scoped; the agents work in the directory
-# lh-harness was started from, so a task acts on the caller's real project.
+# lhht was started from, so a task acts on the caller's real project.
 DEFAULT_STATE_ROOT = str(Path.home() / ".lh-harness")
 DEFAULT_WORKSPACE_PATH = _launch_directory()
 DEFAULT_HARNESS_DIR = f"{DEFAULT_STATE_ROOT}/harness"

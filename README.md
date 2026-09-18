@@ -14,7 +14,7 @@ from the v0.1.7 tag: see [`docs/upstream/README.md`](docs/upstream/README.md)
 
 ## What the fork adds
 
-- **ZCode agent backend** (`--agent zcode`): drives the headless runtime
+- **ZCode agent backend** (`lhht run --agent zcode`): drives the headless runtime
   bundled with the ZCode desktop app on GLM models (`glm-5.3` default,
   `glm-5.3-flash`), with role-scoped permission modes (`plan` for the manager
   and auditors, `yolo` for executors). The reasoning effort (`low`/`high`/`max`)
@@ -44,7 +44,7 @@ work above — install from this repository:
 git clone https://github.com/TON14/LongHorizon-Harness.git
 cd LongHorizon-Harness
 npm run build --prefix frontend/web   # the Web workbench bundle
-uv tool install --force .
+uv tool install --force .   # installs the `lhht` command
 ```
 
 ## Developing
@@ -56,9 +56,10 @@ make dev-api     # control API on 127.0.0.1:8799
 make dev-web     # Vite dev server on :5173, proxying /api
 ```
 
-The harness is also used to develop itself: a repo-root `.lh-harness/config.toml`
+The tool installs as **`lhht`** (import module and the `.lh-harness/` state directory keep their
+historical names). The harness is also used to develop itself: a repo-root `.lh-harness/config.toml`
 defines the roles (manager/executor on `glm-5.3-flash`, auditor on `glm-5.3`,
-effort `max`), and tasks run with `lh-harness run --task @task.md`. Agents edit
+effort `max`), and tasks run with `lhht run --task @task.md`. Agents edit
 the working tree; the operator reviews, runs `make check`, and commits.
 
 ## Credits
