@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-import lh_harness.cli as cli
-from lh_harness.cli import _apply_repeatable_defaults, _resolve_guard_exclude_paths
-from lh_harness.config import ProjectConfigError, _flatten_run_table
+import lhht.cli as cli
+from lhht.cli import _apply_repeatable_defaults, _resolve_guard_exclude_paths
+from lhht.config import ProjectConfigError, _flatten_run_table
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -78,7 +78,7 @@ def test_redundant_harness_state_exclusion_is_a_note_not_an_error(
 
     # Harness-owned paths are never snapshotted anyway, so naming one (or
     # anything inside one) must not fail the run -- operators reasonably list
-    # .lh-harness for completeness.
+    # .lhht for completeness.
     resolved = _resolve_guard_exclude_paths(
         ["runs/run-1", "runs/run-1/logs", "target"],
         workspace=workspace,
@@ -228,7 +228,7 @@ def test_run_parses_repeatable_options_without_inheriting_the_config(monkeypatch
 
 
 def test_dir_mtime_only_change_is_a_note_not_a_mutation() -> None:
-    from lh_harness.adapters.claude_permissions import (
+    from lhht.adapters.claude_permissions import (
         WorkspaceSnapshot,
         workspace_snapshot_diff,
     )
@@ -249,7 +249,7 @@ def test_dir_mtime_only_change_is_a_note_not_a_mutation() -> None:
 
 
 def test_dir_mtime_change_with_dirty_children_stays_a_mutation() -> None:
-    from lh_harness.adapters.claude_permissions import (
+    from lhht.adapters.claude_permissions import (
         WorkspaceSnapshot,
         workspace_snapshot_diff,
     )

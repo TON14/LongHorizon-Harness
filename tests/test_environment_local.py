@@ -14,9 +14,9 @@ import time
 
 import pytest
 
-from lh_harness.environment.local import LocalEnvironment
-from lh_harness.environment.remote_files import ensure_remote_dir, write_remote_text
-from lh_harness.utils import process_group
+from lhht.environment.local import LocalEnvironment
+from lhht.environment.remote_files import ensure_remote_dir, write_remote_text
+from lhht.utils import process_group
 
 PY = sys.executable
 
@@ -153,7 +153,7 @@ def test_partial_output_survives_a_timeout(env):
 def test_the_child_is_dead_after_a_timeout(env):
     """The whole point of the process-group handling."""
     script = "import time; time.sleep(30)"
-    marker = "lh_harness_timeout_probe"
+    marker = "lhht_timeout_probe"
     run(env.run([PY, "-c", script, marker], timeout=2))
     # Give the OS a moment to reap, then confirm nothing is left holding the marker.
     time.sleep(1.0)
@@ -206,7 +206,7 @@ def test_remote_helpers_fall_back_to_the_shell_for_remote_envs(tmp_path):
 
         async def exec(self, command, timeout=30, tee_path=None):
             calls.append(command)
-            from lh_harness.types import ExecResult
+            from lhht.types import ExecResult
 
             return ExecResult(stdout="", stderr="", exit_code=0, duration_ms=0)
 

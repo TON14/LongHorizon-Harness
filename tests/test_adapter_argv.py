@@ -12,10 +12,10 @@ import os
 
 import pytest
 
-from lh_harness.adapters.claude_code import ClaudeCodeAdapter
-from lh_harness.adapters.cli_agent import CommandAgentAdapter
-from lh_harness.adapters.codex import CodexAdapter
-from lh_harness.types import EpisodeBudget, ExecResult
+from lhht.adapters.claude_code import ClaudeCodeAdapter
+from lhht.adapters.cli_agent import CommandAgentAdapter
+from lhht.adapters.codex import CodexAdapter
+from lhht.types import EpisodeBudget, ExecResult
 
 
 class RecordingEnv:
@@ -177,7 +177,7 @@ def test_claude_role_and_credentials_go_to_env(tmp_path):
         prompt_dir=str(tmp_path / "p"),
     )
     call, _ = episode(adapter)
-    assert call["env"]["LH_HARNESS_CLAUDE_ROLE"] == "gui_auditor"
+    assert call["env"]["LHHT_CLAUDE_ROLE"] == "gui_auditor"
     assert call["env"]["ANTHROPIC_API_KEY"] == "sk-ant"
     # Auditor roles also get the git/pager quieting vars.
     assert call["env"]["GIT_PAGER"] == "cat"
@@ -214,7 +214,7 @@ def test_every_claude_role_builds(tmp_path, role):
 
 
 def test_deny_rules_cover_drive_letter_paths():
-    from lh_harness.adapters.claude_permissions import path_deny_rules
+    from lhht.adapters.claude_permissions import path_deny_rules
 
     rules = path_deny_rules(("C:/runs/logs",))
     joined = " ".join(rules)

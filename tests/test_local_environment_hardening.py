@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lh_harness.environment.local import (
+from lhht.environment.local import (
     LocalEnvironment,
     _open_trajectory_file,
     _screenshot_commands,
@@ -52,7 +52,7 @@ def test_screenshot_never_lets_a_scratch_path_become_command_syntax(tmp_path: Pa
 
     unsafe = tmp_path / "scratch;touch pwned" if sys.platform != "win32" else tmp_path / "scratch'touch pwned"
     unsafe.mkdir()
-    target = unsafe / "_lh_harness_screenshot.png"
+    target = unsafe / "_lhht_screenshot.png"
     commands = _screenshot_commands(target)
 
     assert commands, "every supported platform provides at least one capture command"
@@ -89,16 +89,16 @@ def test_embedded_agent_does_not_inherit_web_control_token(monkeypatch) -> None:
         captured.update(kwargs)
         return FakeProcess()
 
-    monkeypatch.setenv("LH_HARNESS_WEB_TOKEN", "control-secret")
+    monkeypatch.setenv("LHHT_WEB_TOKEN", "control-secret")
     # exec() spawns an explicit shell binary through create_subprocess_exec;
     # there is no create_subprocess_shell anywhere in the harness any more.
     monkeypatch.setattr(asyncio, "create_subprocess_exec", launch)
-    monkeypatch.setattr("lh_harness.environment.local.track_process_group", lambda _pid: None)
-    monkeypatch.setattr("lh_harness.environment.local.untrack_process_group", lambda _pid: None)
+    monkeypatch.setattr("lhht.environment.local.track_process_group", lambda _pid: None)
+    monkeypatch.setattr("lhht.environment.local.untrack_process_group", lambda _pid: None)
 
     result = asyncio.run(LocalEnvironment().exec("agent-command"))
 
     assert result.exit_code == 0
     child_env = captured.get("env")
     assert isinstance(child_env, dict)
-    assert child_env.get("LH_HARNESS_WEB_TOKEN") is None
+    assert child_env.get("LHHT_WEB_TOKEN") is None

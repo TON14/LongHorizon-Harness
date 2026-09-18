@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 
-from lh_harness.utils.process_group import process_alive
+from lhht.utils.process_group import process_alive
 
 
 def test_probe_sees_a_live_process_and_does_not_kill_it():

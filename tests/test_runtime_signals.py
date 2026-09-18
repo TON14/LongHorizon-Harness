@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from lh_harness.runtime_signals import detect_runtime_signals, hard_signal_labels
+from lhht.runtime_signals import detect_runtime_signals, hard_signal_labels
 
 
 def _jsonl(*records: dict[str, object]) -> str:

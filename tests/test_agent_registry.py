@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from lh_harness import agent_registry
-from lh_harness.agent_registry import (
+from lhht import agent_registry
+from lhht.agent_registry import (
     AGENT_IDS,
     AGENT_SPECS,
     agent_spec,
@@ -14,7 +14,7 @@ from lh_harness.agent_registry import (
     reasoning_choices,
     supports_reasoning_effort,
 )
-from lh_harness.cli import _AGENT_CHOICES
+from lhht.cli import _AGENT_CHOICES
 
 from .fake_cli import fake_cli
 
@@ -44,7 +44,7 @@ def test_cli_agent_choices_match_the_registry() -> None:
 
 
 def test_registry_default_models_match_the_cli_table() -> None:
-    from lh_harness.cli import _AGENTS
+    from lhht.cli import _AGENTS
 
     assert {name: model for name, _, model in _AGENTS} == {
         spec.id: spec.default_model for spec in AGENT_SPECS

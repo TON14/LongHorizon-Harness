@@ -61,7 +61,7 @@ typecheck: require-web-deps ## Type-check the Web app without emitting output
 # The bundle is a build artifact, not source: the directory is git-ignored and
 # CI rebuilds it before packaging, so the wheel has one source of truth for it.
 # Never commit it. One webapi test skips itself until this has run.
-build-web: require-web-deps ## Build the Web bundle into src/lh_harness/_frontend/web/dist
+build-web: require-web-deps ## Build the Web bundle into src/lhht/_frontend/web/dist
 	$(NPM) run build --prefix $(WEB)
 
 dist: build-web ## Build the sdist and wheel
@@ -70,15 +70,15 @@ dist: build-web ## Build the sdist and wheel
 	$(PYTHON) -m build
 
 dev-api: require-py-deps ## Serve the control API on 127.0.0.1:8799
-	$(PYTHON) -m lh_harness web --no-open
+	$(PYTHON) -m lhht web --no-open
 
-# Run alongside dev-api in a second shell. Set LH_HARNESS_WEB_API to proxy to a
+# Run alongside dev-api in a second shell. Set LHHT_WEB_API to proxy to a
 # control API running somewhere other than 127.0.0.1:8799.
 dev-web: require-web-deps ## Serve the Vite dev server on :5173, proxying /api to dev-api
 	$(NPM) run dev --prefix $(WEB)
 
 clean: ## Remove build artifacts and caches (rebuild the bundle with build-web)
-	rm -rf dist build src/lh_harness/_frontend .pytest_cache
+	rm -rf dist build src/lhht/_frontend .pytest_cache
 	find src tests -name '__pycache__' -type d -prune -exec rm -rf {} +
 	find . -maxdepth 2 -name '*.egg-info' -type d -prune -exec rm -rf {} +
 
@@ -93,7 +93,7 @@ require-node:
 		|| { echo 'Node.js $(NODE_MIN) or later is required; found '"$$(node -v 2>/dev/null || echo 'no node on PATH')"'.'; exit 1; }
 
 require-py-deps: require-python
-	@$(PYTHON) -c 'import lh_harness, pytest' >/dev/null 2>&1 \
+	@$(PYTHON) -c 'import lhht, pytest' >/dev/null 2>&1 \
 		|| { echo 'The editable install with test extras is missing. Run: make install-py'; exit 1; }
 
 require-web-deps: require-node

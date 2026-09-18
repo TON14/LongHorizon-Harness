@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from lh_harness.dashboard.state import DashboardState
-from lh_harness.environment.local import LocalEnvironment
-from lh_harness.manager import (
+from lhht.dashboard.state import DashboardState
+from lhht.environment.local import LocalEnvironment
+from lhht.manager import (
     _GateContext,
     _human_gate,
     _merge_episode_logs,
@@ -16,12 +16,12 @@ from lh_harness.manager import (
     _write_terminal_failure,
     run,
 )
-from lh_harness.types import EpisodeBudget, EpisodeResult, HarnessConfig
-from lh_harness.utils.run_boundary import safe_run_logs, safe_run_role
+from lhht.types import EpisodeBudget, EpisodeResult, HarnessConfig
+from lhht.utils.run_boundary import safe_run_logs, safe_run_role
 
 
 def test_terminal_failure_does_not_follow_role_directory_symlink(tmp_path: Path) -> None:
-    log_dir = tmp_path / "lh_harness"
+    log_dir = tmp_path / "lhht"
     outside = tmp_path / "outside-role"
     log_dir.mkdir()
     outside.mkdir()
@@ -51,7 +51,7 @@ def test_terminal_failure_does_not_follow_log_directory_symlink(tmp_path: Path) 
     outside.mkdir()
     sentinel = outside / "sentinel.txt"
     sentinel.write_text("private", encoding="utf-8")
-    log_link = tmp_path / "lh_harness"
+    log_link = tmp_path / "lhht"
     log_link.symlink_to(outside, target_is_directory=True)
 
     result = _write_terminal_failure(
@@ -71,7 +71,7 @@ def test_terminal_failure_does_not_follow_log_directory_symlink(tmp_path: Path) 
 
 def test_role_result_writes_osworld_style_episode_with_dashboard_role_names(tmp_path: Path) -> None:
     result_dir = tmp_path / "run-1"
-    log_dir = result_dir / "lh_harness"
+    log_dir = result_dir / "lhht"
     round_dir = log_dir / "role_orchestration" / "rounds" / "round_001"
     round_dir.mkdir(parents=True)
     raw = "\n".join(

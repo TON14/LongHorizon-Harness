@@ -11,18 +11,18 @@ from typing import Any
 
 import pytest
 
-import lh_harness.cli as cli
-from lh_harness.dashboard.gate import make_human_hook
-from lh_harness.dashboard.state import DashboardState, _normalise_extra_rounds
-from lh_harness.manager import _extra_rounds, _managed_round_from_dict, _recorded_rounds
-from lh_harness.supervisor.lifecycle import ACTIVE_STATUSES, resume_epoch
-from lh_harness.supervisor.service import (
+import lhht.cli as cli
+from lhht.dashboard.gate import make_human_hook
+from lhht.dashboard.state import DashboardState, _normalise_extra_rounds
+from lhht.manager import _extra_rounds, _managed_round_from_dict, _recorded_rounds
+from lhht.supervisor.lifecycle import ACTIVE_STATUSES, resume_epoch
+from lhht.supervisor.service import (
     RunSupervisor,
     _lifecycle_command_id,
     _merge_lifecycle_status,
     _resume_round_budget,
 )
-from lh_harness.types import MAX_ROUNDS, ManagedRound
+from lhht.types import MAX_ROUNDS, ManagedRound
 
 
 class FakeProcess:
@@ -217,7 +217,7 @@ def test_creating_is_an_active_status() -> None:
 
 
 def _terminal_run(supervisor: RunSupervisor, run_dir: Path, run_id: str, **owner_extra: Any) -> Path:
-    role = run_dir / "lh_harness" / "role_orchestration"
+    role = run_dir / "lhht" / "role_orchestration"
     (run_dir / "control").mkdir(parents=True, exist_ok=True)
     (run_dir / "tmp").mkdir(parents=True, exist_ok=True)
     _write_ledger(role, [_round(1), _round(2)])
@@ -255,16 +255,16 @@ def _terminal_run(supervisor: RunSupervisor, run_dir: Path, run_id: str, **owner
 @pytest.fixture()
 def supervisor(monkeypatch, tmp_path: Path) -> RunSupervisor:
     monkeypatch.setattr(
-        "lh_harness.supervisor.service.subprocess.Popen",
+        "lhht.supervisor.service.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(),
     )
     # os.killpg does not exist on Windows; the supervisor signals through the
     # process-group helpers there, so patch both ends and tolerate the absence.
     monkeypatch.setattr(
-        "lh_harness.supervisor.service.os.killpg", lambda *args, **kwargs: None, raising=False
+        "lhht.supervisor.service.os.killpg", lambda *args, **kwargs: None, raising=False
     )
     monkeypatch.setattr(
-        "lh_harness.utils.process_group._windows_deliver",
+        "lhht.utils.process_group._windows_deliver",
         lambda *args, **kwargs: None,
         raising=False,
     )
