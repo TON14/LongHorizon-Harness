@@ -168,7 +168,7 @@ class _Client:
         return (result or {}).get("messages", [])
 
     def wait_for_assistant_reply(
-        self, session_id: str, *, timeout: float = 600.0, poll: float = 2.0
+        self, session_id: str, *, timeout: float | None = None, poll: float = 2.0
     ) -> tuple[str, dict]:
         """Poll the transcript until the turn's final answer is complete.
 
@@ -178,12 +178,21 @@ class _Client:
         finished assistant message that has stayed unchanged across a poll —
         the extra beat keeps tool-using turns from being cut off after their
         first intermediate step.
+
+        ``timeout=None`` (the default) waits as long as the app-server lives:
+        real executor turns routinely outlast any fixed guess, and the
+        harness's own episode budget is what bounds the episode.
         """
-        deadline = time.time() + timeout
+        deadline = time.time() + timeout if timeout else None
         last_error = ""
         stable_count = 0
         last_snapshot = None
-        while time.time() < deadline:
+        while deadline is None or time.time() < deadline:
+            if self._process.poll() is not None:
+                raise ProtocolError(
+                    f"zcode app-server exited with {self._process.returncode}"
+                    + (f" (last: {last_error})" if last_error else "")
+                )
             try:
                 messages = self.messages(session_id)
             except ProtocolError as exc:
@@ -237,12 +246,15 @@ def run_episode(
     thought_level: str,
     mode: str,
     content: str,
-    timeout: float = 600.0,
+    timeout: float | None = None,
 ) -> dict:
     """Run one prompt through the protocol and return text/session/usage.
 
     ``argv`` is the full command line to launch the app-server, already
     wrapped for the platform (Node script bundles need ``node`` in front).
+    ``timeout`` bounds only the reply wait; ``None`` (the default) waits as
+    long as the app-server lives — the harness episode budget is the real
+    bound, and tool-using executor turns routinely outlast fixed guesses.
     """
     process = subprocess.Popen(
         argv,
