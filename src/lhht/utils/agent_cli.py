@@ -16,12 +16,37 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 # App Execution Aliases live here; they are reparse points, not real programs.
 _WINDOWS_STORE_ALIAS_DIR = os.path.join("Microsoft", "WindowsApps")
 _VERSION_RE = re.compile(r"\d+(?:\.\d+)+\S*")
+
+# Script extensions only a JavaScript runtime can execute. POSIX honours the
+# shebang; Windows cannot launch them directly at all.
+_SCRIPT_BINARY_SUFFIXES = (".cjs", ".mjs", ".js")
+
+
+def zcode_spawn_command(binary: str, args: Sequence[str]) -> list[str]:
+    """Build the argv to launch `binary`, wrapping Node script bundles.
+
+    The ZCode desktop installation ships its headless runtime as a Node
+    bundle (``zcode.cjs``) with a shebang. POSIX executes it directly, but
+    Windows fails with ``[WinError 193] %1 is not a valid Win32 application``,
+    so the bundle must be launched through ``node``. Direct ``node`` execution
+    also keeps the whole Windows argv under CreateProcess's 32767-character
+    ceiling, which a ``cmd.exe`` batch shim would not (8191).
+    """
+
+    if str(binary).lower().endswith(_SCRIPT_BINARY_SUFFIXES):
+        node = shutil.which("node") or shutil.which(
+            "node.exe", path=r"C:\Program Files\nodejs;" + os.environ.get("PATH", "")
+        )
+        if node:
+            return [node, binary, *args]
+    return [binary, *args]
 
 # The desktop app and the standalone npm CLI can both install a `codex`
 # executable.  The desktop binary carries the same authenticated app-server
@@ -192,7 +217,7 @@ def probe_agent_cli(binary: str, *, timeout: int = 15, path: str | None = None) 
     store_alias = is_windows_store_alias(path)
     try:
         result = subprocess.run(
-            _probe_argv(path),
+            zcode_spawn_command(path, ["--version"]),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -223,18 +248,6 @@ def probe_agent_cli(binary: str, *, timeout: int = 15, path: str | None = None) 
             ),
         )
     return AgentCli(binary, path, version=version)
-
-
-def _probe_argv(path: str) -> list[str]:
-    """A Node .cjs bundle (the ZCode runtime) cannot run directly on Windows
-    and needs an interpreter everywhere it lacks a usable shebang, so route
-    .cjs probes through node; other binaries run as themselves."""
-    if not path.endswith(".cjs"):
-        return [path]
-    node = shutil.which("node")
-    if not node:
-        return [path]  # the probe run below reports the missing node honestly
-    return [node, path]
 
 
 def is_windows_store_alias(path: str) -> bool:

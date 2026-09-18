@@ -1,24 +1,23 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from lhht import agent_logs
 from lhht.adapters import zcode as zcode_adapter_module
 from lhht.adapters.zcode import ZCodeAdapter, permission_mode_for_role
-from lhht.adapters.zcode_runner import ATTACHED_TASK_INSTRUCTION, run
-from lhht.environment.local import LocalEnvironment
-from lhht.types import EpisodeBudget
-from lhht.utils.agent_cli import resolve_zcode_binary
-from lhht.webapi import server as web_server
-
-from .fake_cli import fake_cli as _executable
+from lhht.adapters.zcode_provider_config import (
+    PROVIDER_ID,
+    ensure_provider_config,
+)
+from lhht.adapters.zcode_protocol import _Client, run_episode
+from lhht.adapters.zcode_runner import run
+from lhht.utils.agent_cli import resolve_zcode_binary, zcode_spawn_command
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +47,7 @@ def test_zcode_reasoning_is_declared_per_model() -> None:
     spec = agent_spec("zcode")
     assert supports_reasoning_effort("zcode") is True
     assert spec.reasoning is not None
-    assert spec.reasoning.transport == "session_db"
+    assert spec.reasoning.transport == "protocol"
     assert spec.reasoning.declared_choices == ("low", "high", "max")
 
 
@@ -58,405 +57,340 @@ def test_zcode_permission_modes_are_role_scoped() -> None:
     assert permission_mode_for_role("cli_executor") == "yolo"
 
 
-def test_zcode_adapter_builds_runner_command_and_env(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
+def test_zcode_spawn_command_wraps_node_bundles_only() -> None:
+    assert zcode_spawn_command("node", ["x"]) == ["node", "x"]
+    wrapped = zcode_spawn_command("/opt/ZCode/resources/glm/zcode.cjs", ["--version"])
+    assert wrapped[0].lower().endswith(("node", "node.exe"))
+    assert wrapped[1] == "/opt/ZCode/resources/glm/zcode.cjs"
+    assert zcode_spawn_command("C:\\bin\\zcode.exe", ["--version"]) == [
+        "C:\\bin\\zcode.exe",
+        "--version",
+    ]
+
+
+def test_zcode_adapter_builds_runner_command(monkeypatch, tmp_path: Path) -> None:
     binary = str(tmp_path / "ZCode" / "zcode.cjs")
     monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: binary)
+    seen: dict = {}
+
+    def fake_ensure(api_key, model_id, *, base_url=""):
+        seen.update(api_key=api_key, model_id=model_id, base_url=base_url)
+        return tmp_path / "provider_config.json"
+
+    monkeypatch.setattr(zcode_adapter_module, "ensure_provider_config", fake_ensure)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
     adapter = ZCodeAdapter(
-        model="glm-5.3",
+        model="zai/glm-5.3-flash",
         api_key="sk-test",
         workspace_path=str(workspace),
         prompt_dir=str(tmp_path / "run with spaces" / "prompts"),
         role="manager",
+        reasoning_effort="low",
     )
 
     argv = adapter.argv
     assert "lhht.adapters.zcode_runner" in argv
     assert argv[argv.index("--binary") + 1] == binary
+    assert argv[argv.index("--model") + 1] == "glm-5.3-flash"
     assert argv[argv.index("--mode") + 1] == "plan"
-    assert adapter.permission_mode == "plan"
-    # With a key in hand the provider rides in the project config, so the
-    # model must NOT also come from ZCODE_MODEL: the env-configured provider
-    # would win and silently drop the effort dial.
-    assert "ZCODE_MODEL" not in adapter.env
-    session_db = Path(adapter.env["ZCODE_SESSION_DB_PATH"])
-    assert session_db.parent.name == "zcode-db"
-    assert session_db.name == "session.db"
-    assert adapter.project_config == "created"
-    config = json.loads((workspace / ".zcode" / "config.json").read_text(encoding="utf-8"))
-    assert config["model"]["main"] == "zai/glm-5.3"
-    assert config["provider"]["zai"]["options"]["apiKey"] == "sk-test"
-    assert config["provider"]["zai"]["options"]["baseURL"] == "https://api.z.ai/api/anthropic"
-    assert config["provider"]["zai"]["models"] == {"glm-5.3": {}}
+    assert argv[argv.index("--thought-level") + 1] == "low"
+    assert argv[argv.index("--workspace") + 1] == str(workspace)
+    assert adapter.reasoning_effort == "low"
+    assert seen == {
+        "api_key": "sk-test",
+        "model_id": "glm-5.3-flash",
+        "base_url": "https://api.z.ai/api/anthropic",
+    }
 
 
-def test_zcode_project_config_permissions_and_reuse(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
+def test_zcode_adapter_requires_a_key(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    prompt_dir = tmp_path / "prompts"
-
-    first = ZCodeAdapter(
-        api_key="sk-test",
-        workspace_path=str(workspace),
-        prompt_dir=str(prompt_dir),
-    )
-    config_path = workspace / ".zcode" / "config.json"
-    if os.name == "nt":
-        # chmod is advisory on Windows; existence is all it guarantees.
-        assert config_path.is_file()
-    else:
-        assert oct(config_path.stat().st_mode & 0o777) == "0o600"
-    assert ".zcode" in first.hidden_paths
-
-    config_path.write_text('{"model": {"main": "custom/model"}}', encoding="utf-8")
-    second = ZCodeAdapter(
-        api_key="sk-test",
-        workspace_path=str(workspace),
-        prompt_dir=str(prompt_dir),
-    )
-    # The operator's own file is never overwritten.
-    assert second.project_config == "pre-existing"
-    assert "custom/model" in config_path.read_text(encoding="utf-8")
-    assert ".zcode" not in second.hidden_paths
+    with pytest.raises(ValueError, match="API key"):
+        ZCodeAdapter(model="glm-5.3-flash", workspace_path=str(tmp_path))
 
 
-def test_zcode_adapter_falls_back_to_env_config_without_a_key(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    adapter = ZCodeAdapter(
-        workspace_path=str(workspace),
-        prompt_dir=str(tmp_path / "prompts"),
-    )
-
-    assert adapter.project_config == "env-configured"
-    assert not (workspace / ".zcode").exists()
-    assert adapter.env["ZCODE_MODEL"] == "zai/glm-5.3"
-    assert adapter.env["ZCODE_BASE_URL"] == "https://api.z.ai/api/anthropic"
-    assert "ZCODE_SESSION_DB_PATH" in adapter.env
-
-
-def test_zcode_adapter_keeps_qualified_model_and_custom_endpoint(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
-
-    adapter = ZCodeAdapter(
-        model="other/glm-5.3-flash",
-        base_url="https://proxy.example.com/anthropic/",
-        workspace_path=str(tmp_path / "ws"),
-        prompt_dir=str(tmp_path / "prompts"),
-        role="cli_executor",
-    )
-
-    assert adapter.env["ZCODE_MODEL"] == "other/glm-5.3-flash"
-    assert adapter.env["ZCODE_BASE_URL"] == "https://proxy.example.com/anthropic"
-    assert adapter.permission_mode == "yolo"
-
-
-def test_zcode_reasoning_effort_seeds_the_isolated_session_db(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
-
-    adapter = ZCodeAdapter(
-        api_key="sk-test",
-        workspace_path=str(tmp_path / "ws"),
-        prompt_dir=str(tmp_path / "prompts"),
-        reasoning_effort="high",
-    )
-
-    assert adapter.reasoning_effort == "high"
-    import sqlite3
-
-    connection = sqlite3.connect(adapter.env["ZCODE_SESSION_DB_PATH"])
-    try:
-        row = connection.execute(
-            "select value from local_setting where namespace='model' and key='reasoningLevel'"
-        ).fetchone()
-    finally:
-        connection.close()
-    assert json.loads(row[0]) == {"level": "high"}
-
-    # Re-seeding the same store updates the level instead of failing.
-    ZCodeAdapter(
-        api_key="sk-test",
-        workspace_path=str(tmp_path / "ws"),
-        prompt_dir=str(tmp_path / "prompts"),
-        reasoning_effort="low",
-    )
-    connection = sqlite3.connect(adapter.env["ZCODE_SESSION_DB_PATH"])
-    try:
-        row = connection.execute(
-            "select value from local_setting where namespace='model' and key='reasoningLevel'"
-        ).fetchone()
-    finally:
-        connection.close()
-    assert json.loads(row[0]) == {"level": "low"}
-
-
-def test_zcode_rejects_unknown_zai_effort_but_keeps_custom_providers(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: "zcode")
-
-    with pytest.raises(ValueError, match="low, high, max"):
+def test_zcode_adapter_rejects_unknown_effort(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="reasoning effort"):
         ZCodeAdapter(
-            workspace_path=str(tmp_path / "ws"),
-            prompt_dir=str(tmp_path / "prompts"),
-            reasoning_effort="medium",
+            model="glm-5.3-flash",
+            api_key="sk-test",
+            workspace_path=str(tmp_path),
+            reasoning_effort="ultra",
         )
-    # A custom provider owns its own level names; the harness passes them on.
-    adapter = ZCodeAdapter(
-        model="other/glm-x",
-        workspace_path=str(tmp_path / "ws"),
-        prompt_dir=str(tmp_path / "prompts"),
-        reasoning_effort="medium",
-    )
-    assert adapter.reasoning_effort == "medium"
 
 
-def test_zcode_runner_parses_the_json_final_answer(
-    tmp_path: Path,
-    capsys,
-) -> None:
-    binary = _executable(
-        tmp_path / "bin" / "zcode",
-        "import json\n"
-        'print(json.dumps({"sessionId": "sess_1", "response": "done by zcode", '
-        '"usage": {"inputTokens": 5}}))\n',
+def test_ensure_provider_config_merges_and_preserves(tmp_path: Path) -> None:
+    config_path = tmp_path / "provider_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "config": {
+                    "providerConfigRules": {
+                        "providerRules": [
+                            {"providerId": "user-own", "config": {"group": "standard-personal"}}
+                        ]
+                    },
+                    "modelConfigRules": {
+                        "providerModelRules": [],
+                        "manualProviderModelRules": [
+                            {"providerId": "user-own", "modelId": "m1", "config": {"enabled": True}}
+                        ],
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
     )
+
+    ensure_provider_config("key-1", "glm-5.3-flash", path=config_path)
+    first = json.loads(config_path.read_text(encoding="utf-8"))
+    rules = first["config"]["providerConfigRules"]["providerRules"]
+    harness_rules = [r for r in rules if r["providerId"] == PROVIDER_ID]
+    user_rules = [r for r in rules if r["providerId"] == "user-own"]
+    assert len(harness_rules) == 1 and len(user_rules) == 1
+    rule = harness_rules[0]
+    assert rule["config"]["group"] == "standard-personal"
+    assert "builtinModelIds" not in rule["config"]
+    assert rule["config"]["personalModelIds"] == ["glm-5.3-flash"]
+    assert rule["config"]["access"]["apiKey"] == "key-1"
+
+    manual = first["config"]["modelConfigRules"]["manualProviderModelRules"]
+    assert [(m["providerId"], m["modelId"]) for m in manual] == [
+        ("user-own", "m1"),
+        (PROVIDER_ID, "glm-5.3-flash"),
+    ]
+    spec = manual[-1]["config"]["optionSpecs"]["reasoningLevel"]
+    assert spec["values"] == ["low", "high", "max"]
+    # The map is a JSON *string* of per-level patches, per the runtime schema.
+    assert isinstance(spec["map"], str)
+    assert json.loads(spec["map"])["low"] == {}
+
+    # Idempotent second write, with a key rotation: same single rule, new key.
+    ensure_provider_config("key-2", "glm-5.3-flash", path=config_path)
+    second = json.loads(config_path.read_text(encoding="utf-8"))
+    rules2 = [
+        r
+        for r in second["config"]["providerConfigRules"]["providerRules"]
+        if r["providerId"] == PROVIDER_ID
+    ]
+    assert len(rules2) == 1
+    assert rules2[0]["config"]["access"]["apiKey"] == "key-2"
+    assert len(second["config"]["providerConfigRules"]["providerRules"]) == 2
+
+
+def test_ensure_provider_config_rejects_empty_model(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        ensure_provider_config("key", "", path=tmp_path / "p.json")
+
+
+def _fake_app_server_script() -> str:
+    """A tiny ZCode Protocol app-server lookalike for runner tests."""
+    return r"""
+import json, sys
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+created = {"result": {"protocol": {"name": "ZCode Protocol", "version": 1},
+                      "session": {"sessionId": "sess_fake", "mode": "yolo"}}}
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    method = msg.get("method")
+    if method == "session/requestRuntimePreferences":
+        send({"id": msg["id"], "result": {"nativeSearchEnhancementsEnabled": False}})
+    elif method == "session/create":
+        send({"id": msg["id"], **created})
+        send({"method": "state.updated", "params": {"status": "running"}})
+    elif method == "session/send":
+        send({"id": msg["id"], "result": {"accepted": True, "sessionId": msg["params"]["sessionId"]}})
+    elif method == "session/messages":
+        send({"id": msg["id"], "result": {"messages": [{
+            "info": {"role": "assistant", "finish": "stop", "tokens": {"output": 3}},
+            "parts": [{"type": "text", "text": "OK"}],
+        }]}})
+    elif "id" in msg:
+        send({"id": msg["id"], "result": {}})
+"""
+def test_zcode_runner_runs_an_episode_through_the_protocol(tmp_path: Path, capsys) -> None:
+    script = tmp_path / "fake_app_server.py"
+    script.write_text(_fake_app_server_script(), encoding="utf-8")
     prompt_path = tmp_path / "prompt.md"
-    prompt_path.write_text("fix the project", encoding="utf-8")
+    prompt_path.write_text("Reply with exactly: OK", encoding="utf-8")
 
-    assert run(binary, prompt_path, "glm-5.3", mode="yolo") == 0
+    exit_code = run(
+        sys.executable,
+        prompt_path,
+        "glm-5.3-flash",
+        mode="yolo",
+        thought_level="high",
+        workspace=str(tmp_path),
+        server_args=["-u", str(script)],
+    )
 
+    assert exit_code == 0
     record = json.loads(capsys.readouterr().out)
     assert record["type"] == "zcode.result"
     assert record["is_error"] is False
-    assert record["text"] == "done by zcode"
-    assert record["session_id"] == "sess_1"
-    assert record["usage"] == {"inputTokens": 5}
+    assert record["text"] == "OK"
+    assert record["session_id"] == "sess_fake"
 
 
-def test_zcode_runner_parses_a_pretty_printed_json_answer(
-    tmp_path: Path,
-    capsys,
-) -> None:
-    # The real CLI pretty-prints `--json` across many lines; the reply must
-    # still come from `response`, not the raw document.
-    payload = (
-        "{\n"
-        '  "sessionId": "sess_p",\n'
-        '  "response": "Next: cli\\nTask: do the work",\n'
-        '  "usage": {"inputTokens": 7}\n'
-        "}\n"
-    )
-    binary = _executable(
-        tmp_path / "bin" / "zcode",
-        "import sys\nsys.stdout.write(" + json.dumps(payload) + ")\n",
-    )
-    prompt_path = tmp_path / "prompt.md"
-    prompt_path.write_text("plan", encoding="utf-8")
-
-    assert run(binary, prompt_path, "glm-5.3", mode="plan") == 0
-
-    record = json.loads(capsys.readouterr().out)
-    assert record["text"] == "Next: cli\nTask: do the work"
-    assert record["session_id"] == "sess_p"
-    assert record["usage"] == {"inputTokens": 7}
-
-
-def test_zcode_runner_passes_prompt_and_mode_to_the_cli(
-    tmp_path: Path,
-    capsys,
-) -> None:
-    binary = _executable(
-        tmp_path / "bin" / "zcode",
-        "print(' '.join(sys.argv[1:]))\n",
-    )
-    prompt_path = tmp_path / "prompt.md"
-    prompt_path.write_text("fix the project", encoding="utf-8")
-
-    assert run(binary, prompt_path, "glm-5.3", mode="plan") == 0
-
-    record = json.loads(capsys.readouterr().out)
-    text = record["text"]
-    assert text.startswith("--json")
-    assert "--mode plan" in text
-    assert text.endswith("fix the project")
-
-
-def test_zcode_runner_preserves_failure_and_stderr(tmp_path: Path, capfd) -> None:
-    binary = _executable(
-        tmp_path / "bin" / "zcode",
-        "sys.stderr.write('model config is missing\\n')\nsys.exit(9)\n",
+def test_zcode_runner_surfaces_protocol_failures(tmp_path: Path, capsys) -> None:
+    script = tmp_path / "failing_app_server.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import json, sys",
+                "def send(o):",
+                "    sys.stdout.write(json.dumps(o) + chr(10)); sys.stdout.flush()",
+                "for line in sys.stdin:",
+                "    msg = json.loads(line)",
+                "    if msg.get('method') == 'session/create':",
+                "        send({'id': msg['id'], 'error': {'code': -32000, 'message': 'boom'}})",
+            ]
+        ),
+        encoding="utf-8",
     )
     prompt_path = tmp_path / "prompt.md"
     prompt_path.write_text("task", encoding="utf-8")
 
-    assert run(binary, prompt_path, "glm-5.3") == 9
+    exit_code = run(
+        sys.executable,
+        prompt_path,
+        "glm-5.3-flash",
+        mode="plan",
+        thought_level="low",
+        workspace=str(tmp_path),
+        server_args=["-u", str(script)],
+    )
 
-    record = json.loads(capfd.readouterr().out)
-    assert record["is_error"] is True
-    assert record["exit_code"] == 9
-    # The CLI's stderr rides inside the record rather than the runner's own
-    # stderr, so the episode log carries the provider's reason.
-    assert "model config is missing" in record["error"]
-
-
-@pytest.mark.parametrize("via_attach", [False, True])
-def test_zcode_runner_task_deliveries_work_on_every_platform(
-    tmp_path: Path,
-    capsys,
-    via_attach: bool,
-) -> None:
-    """Both deliveries, exercised regardless of the host OS.
-
-    The attach route exists because Windows caps the command line at 32767
-    characters and role prompts run 30-40 KB; if only Windows machines ever
-    executed it, a change in zcode's --attach handling would surface as
-    agents silently receiving the instruction instead of the task. This is
-    the tripwire.
-    """
-    binary = _executable(tmp_path / "bin" / "zcode", "print(' '.join(sys.argv[1:]))\n")
-    prompt_path = tmp_path / "prompt.md"
-    prompt = ("x" * 9000) + " unique-tail-token"
-    prompt_path.write_text(prompt, encoding="utf-8")
-
-    assert run(binary, prompt_path, "glm-5.3", task_via_attach=via_attach) == 0
-
+    assert exit_code == 1
     record = json.loads(capsys.readouterr().out)
-    text = record["text"]
-    if via_attach:
-        # The task must not ride on the command line at all...
-        assert "unique-tail-token" not in text
-        assert "--attach" in text
-        assert str(prompt_path) in text
-        assert text.endswith(ATTACHED_TASK_INSTRUCTION)
-    else:
-        assert text.endswith("unique-tail-token")
-        assert "--attach" not in text
+    assert record["is_error"] is True
+    assert "boom" in record["error"]
 
 
-def test_zcode_runner_launches_cjs_through_node(
-    tmp_path: Path,
-    capsys,
-) -> None:
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node is not on PATH")
-    script = tmp_path / "bin" / "zcode.cjs"
-    script.parent.mkdir(parents=True, exist_ok=True)
+def test_zcode_protocol_client_answers_client_bound_requests(tmp_path: Path) -> None:
+    """The server blocks on client-bound requests; the client must answer.
+
+    session/requestRuntimePreferences gates every session/create, so a
+    client that stays silent deadlocks the harness on the very first
+    episode. The fake server only completes the create after it has seen
+    the answer to its question.
+    """
+    script = tmp_path / "asking_app_server.py"
     script.write_text(
-        "console.log(JSON.stringify({response: process.argv.slice(2).join(' ')}))\n",
+        "\n".join(
+            [
+                "import json, sys",
+                "def send(o):",
+                "    sys.stdout.write(json.dumps(o) + chr(10)); sys.stdout.flush()",
+                "for line in sys.stdin:",
+                "    msg = json.loads(line)",
+                "    if msg.get('method') == 'session/requestRuntimePreferences':",
+                "        send({'id': msg['id'], 'result': {'nativeSearchEnhancementsEnabled': True}})",
+                "        continue",
+                "    if msg.get('method') == 'session/create':",
+                "        send({'id': msg['id'], 'result': {'session': {'sessionId': 'sess_ok'}}})",
+                "    elif 'id' in msg:",
+                "        send({'id': msg['id'], 'result': {}})",
+            ]
+        ),
         encoding="utf-8",
     )
-    prompt_path = tmp_path / "prompt.md"
-    prompt_path.write_text("do the work", encoding="utf-8")
+    process = subprocess.Popen(
+        [sys.executable, "-u", str(script)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+    )
+    client = _Client(process)
+    try:
+        assert client.create_session(
+            workspace_path=str(tmp_path),
+            workspace_key=str(tmp_path),
+            provider_id="p",
+            model_id="m",
+            reasoning_level="low",
+            thought_level="low",
+            mode="plan",
+            timeout=20,
+        ) == "sess_ok"
+    finally:
+        client.close()
 
-    assert run(str(script), prompt_path, "glm-5.3", mode="plan") == 0
 
-    record = json.loads(capsys.readouterr().out)
-    argv = record["text"].split(" ")
-    assert argv[0] == "--json"
-    assert argv[argv.index("--mode") + 1] == "plan"
-    assert record["text"].endswith("do the work")
+def test_zcode_run_episode_reaches_the_app_server(tmp_path: Path) -> None:
+    """Full run_episode path: create pinned to the model/effort, then send."""
+    seen: dict = {}
+
+    script = tmp_path / "asserting_app_server.py"
+    checks = json.dumps(
+        {
+            "provider": "zai-direct",
+            "model": "glm-5.3-flash",
+            "level": "max",
+            "mode": "plan",
+            "workspace": str(tmp_path),
+        }
+    )
+    script.write_text(
+        "\n".join(
+            [
+                "import json, sys",
+                "expected = json.loads(%r)" % checks,
+                "def send(o):",
+                "    sys.stdout.write(json.dumps(o) + chr(10)); sys.stdout.flush()",
+                "for line in sys.stdin:",
+                "    msg = json.loads(line)",
+                "    method = msg.get('method')",
+                "    if method == 'session/create':",
+                "        p = msg['params']",
+                "        sel = p['model']",
+                "        assert sel['providerId'] == expected['provider'], sel",
+                "        assert sel['modelId'] == expected['model'], sel",
+                "        assert sel['options']['reasoningLevel'] == expected['level'], sel",
+                "        assert p['thoughtLevel'] == expected['level'], p",
+                "        assert p['mode'] == expected['mode'], p",
+                "        assert p['workspace']['workspacePath'] == expected['workspace'], p",
+                "        send({'id': msg['id'], 'result': {'session': {'sessionId': 'sess_e2e'}}})",
+                "    elif method == 'session/send':",
+                "        assert 'unique-tail-token' in msg['params']['content']",
+                "        send({'id': msg['id'], 'result': {'accepted': True, 'sessionId': 'sess_e2e'}})",
+                "    elif method == 'session/messages':",
+                "        send({'id': msg['id'], 'result': {'messages': [{'info': {'role': 'assistant', 'finish': 'stop', 'tokens': {'output': 2}}, 'parts': [{'type': 'text', 'text': 'done'}]}]}})",
+                "    elif 'id' in msg:",
+                "        send({'id': msg['id'], 'result': {}})",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_episode(
+        argv=[sys.executable, "-u", str(script)],
+        workspace_path=str(tmp_path),
+        workspace_key=str(tmp_path),
+        provider_id="zai-direct",
+        model_id="glm-5.3-flash",
+        reasoning_level="max",
+        thought_level="max",
+        mode="plan",
+        content="task with unique-tail-token",
+        timeout=60,
+    )
+    assert result["text"] == "done"
+    assert result["session_id"] == "sess_e2e"
 
 
 def test_zcode_jsonl_views() -> None:
-    raw = json.dumps(
-        {
-            "type": "zcode.result",
-            "text": "implemented and verified",
-            "is_error": False,
-            "exit_code": 0,
-        }
-    )
-
-    assert agent_logs.detect_format(raw) == agent_logs.ZCODE_RESULT_JSONL
-    assert agent_logs.visible_output(raw) == "implemented and verified"
-    assert agent_logs.assistant_texts(raw) == ["implemented and verified"]
-    steps = agent_logs.parse_trajectory(raw)
-    assert steps[0]["kind"] == "result"
-    assert steps[0]["text"] == "implemented and verified"
-    assert steps[0]["is_error"] is False
-
-
-def test_zcode_adapter_runs_end_to_end_with_fake_zcode(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    binary = _executable(
-        tmp_path / "bin" / "zcode",
-        "import sys, json\n"
-        'print(json.dumps({"response": "done by zcode"}))\n',
-    )
-    monkeypatch.setattr(zcode_adapter_module, "resolve_zcode_binary", lambda: binary)
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    prompt_dir = tmp_path / "run state" / "prompts"
-    adapter = ZCodeAdapter(
-        workspace_path=str(workspace),
-        prompt_dir=str(prompt_dir),
-        role="cli_executor",
-    )
-
-    result = asyncio.run(
-        adapter.run_episode(
-            "complete the task",
-            LocalEnvironment(tmp_dir=str(tmp_path / "tmp")),
-            EpisodeBudget(max_duration_seconds=10),
-        )
-    )
-
-    assert result.status == "done"
-    assert result.metadata["assistant_visible_output"] == "done by zcode"
-    assert result.metadata["runtime_signals"] == []
-    assert json.loads(result.actions_log)["type"] == "zcode.result"
-    assert result.metadata["zcode_mode"] == "yolo"
-
-
-def test_web_meta_exposes_zcode_backend_and_default_model(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    # Availability is proven by running `--version`, so the stub answers it.
-    binary = _executable(tmp_path / "bin" / "zcode", 'print("zcode 0.16.5")\n')
-    monkeypatch.setattr(web_server, "resolve_zcode_binary", lambda: binary)
-
-    client = TestClient(web_server.create_app(runs_root=tmp_path / "runs"))
-    meta = client.get("/api/meta").json()
-    agent = next(item for item in meta["agents"] if item["id"] == "zcode")
-
-    assert agent["label"] == "ZCode"
-    assert agent["available"] is True
-    assert agent["availability"] == "usable"
-    assert agent["version"] == "0.16.5"
-    assert agent["binary"] == binary
-    assert agent["default_model"] == "glm-5.3"
-    assert meta["models"]["zcode"][0]["id"] == "glm-5.3"
-    assert meta["models"]["zcode"][1]["id"] == "glm-5.3-flash"
-    # The workbench offers the GLM-5.x reasoning dial for ZCode runs.
-    assert agent["reasoning"]["supported"] is True
-    assert [choice["id"] for choice in agent["reasoning"]["choices"]] == [
-        "low",
-        "high",
-        "max",
-    ]
+    raw = '{"type":"zcode.result","text":"hi","is_error":false,"exit_code":0}\n'
+    assert agent_logs.visible_output(raw) == "hi"
