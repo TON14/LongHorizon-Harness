@@ -192,7 +192,7 @@ def probe_agent_cli(binary: str, *, timeout: int = 15, path: str | None = None) 
     store_alias = is_windows_store_alias(path)
     try:
         result = subprocess.run(
-            [path, "--version"],
+            _probe_argv(path),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -223,6 +223,18 @@ def probe_agent_cli(binary: str, *, timeout: int = 15, path: str | None = None) 
             ),
         )
     return AgentCli(binary, path, version=version)
+
+
+def _probe_argv(path: str) -> list[str]:
+    """A Node .cjs bundle (the ZCode runtime) cannot run directly on Windows
+    and needs an interpreter everywhere it lacks a usable shebang, so route
+    .cjs probes through node; other binaries run as themselves."""
+    if not path.endswith(".cjs"):
+        return [path]
+    node = shutil.which("node")
+    if not node:
+        return [path]  # the probe run below reports the missing node honestly
+    return [node, path]
 
 
 def is_windows_store_alias(path: str) -> bool:

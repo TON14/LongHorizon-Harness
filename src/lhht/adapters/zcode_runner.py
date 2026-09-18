@@ -2,10 +2,36 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
+
+# What the positional task says when the real prompt rides in as an
+# attachment. Deliberately explicit: if the CLI ever stopped reading the
+# attachment, this is what the model would receive as its whole task, and
+# it should scream misconfiguration rather than pass as a plausible one.
+ATTACHED_TASK_INSTRUCTION = (
+    "Your complete task is the attached prompt file. Read it in full and "
+    "carry it out exactly as written; the attachment is the task itself, "
+    "not a reference document."
+)
+
+
+def _node_command(script: str) -> list[str]:
+    """A .cjs bundle cannot be executed directly on Windows (no shebangs),
+    so route it through node everywhere; on POSIX both routes are
+    equivalent."""
+    if not script.endswith(".cjs"):
+        return [script]
+    node = shutil.which("node") or shutil.which(
+        "node.exe", path=r"C:\Program Files\nodejs;" + (os.environ.get("PATH", ""))
+    )
+    if not node:
+        raise OSError("node was not found on PATH; it is required to run the ZCode .cjs bundle")
+    return [node, script]
 
 
 def _emit_result(
@@ -69,14 +95,27 @@ def _outermost_json(stdout: str) -> str:
     return ""
 
 
-def run(binary: str, prompt_path: Path, model: str, *, mode: str = "yolo") -> int:
+def run(
+    binary: str,
+    prompt_path: Path,
+    model: str,
+    *,
+    mode: str = "yolo",
+    task_via_attach: bool | None = None,
+) -> int:
     """Bridge one episode to the ZCode headless CLI.
 
     The shared adapter plumbing delivers the prompt as a file and over stdin;
     ZCode only accepts a headless task as a ``-p`` argument, so this bridge
     reads the file and re-launches the CLI with the task in argv -- the same
-    contract ``deepseek_runner`` has with ``dsh``.
+    contract ``deepseek_runner`` has with ``dsh``. Windows caps the whole
+    command line at 32767 characters and role prompts run 30-40 KB, so there
+    the task travels as a ``--attach`` file with an explicit instruction
+    instead. ``task_via_attach`` picks the delivery; ``None`` follows the
+    platform so the test suite exercises both everywhere.
     """
+    if task_via_attach is None:
+        task_via_attach = os.name == "nt"
     try:
         prompt = prompt_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -85,7 +124,26 @@ def run(binary: str, prompt_path: Path, model: str, *, mode: str = "yolo") -> in
         _emit_result(is_error=True, exit_code=2, error=message)
         return 2
 
-    command = [binary, "--json", "--mode", mode, "-p", prompt]
+    try:
+        launcher = _node_command(binary)
+    except OSError as exc:
+        sys.stderr.write(f"{exc}\n")
+        _emit_result(is_error=True, exit_code=127, error=str(exc))
+        return 127
+
+    if task_via_attach:
+        command = [
+            *launcher,
+            "--json",
+            "--mode",
+            mode,
+            "--attach",
+            str(prompt_path),
+            "-p",
+            ATTACHED_TASK_INSTRUCTION,
+        ]
+    else:
+        command = [*launcher, "--json", "--mode", mode, "-p", prompt]
     try:
         completed = subprocess.run(
             command,
@@ -130,12 +188,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--mode", default="yolo")
+    parser.add_argument("--task-via-attach", action="store_true", default=None)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return run(args.binary, Path(args.prompt), args.model, mode=args.mode)
+    return run(
+        args.binary,
+        Path(args.prompt),
+        args.model,
+        mode=args.mode,
+        task_via_attach=args.task_via_attach,
+    )
 
 
 if __name__ == "__main__":
