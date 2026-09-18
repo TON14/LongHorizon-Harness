@@ -462,12 +462,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_defaults.get(name, fallback)
 
     parser = argparse.ArgumentParser(
-        prog="lh-harness",
+        prog="lhht",
         description=f"LongHorizon-Harness {__version__}",
         epilog=_EPILOG,
         formatter_class=_HelpFormatter,
     )
-    parser.add_argument("-V", "--version", action="version", version=f"lh-harness {__version__}")
+    parser.add_argument("-V", "--version", action="version", version=f"lhht {__version__}")
     sub = parser.add_subparsers(dest="command")
 
     def add_command(name: str, help_text: str) -> argparse.ArgumentParser:
@@ -545,7 +545,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument(
         "--workspace",
         default=run_default("workspace"),
-        help="Override the working directory the agents operate in. Defaults to the directory lh-harness was started from.",
+        help="Override the working directory the agents operate in. Defaults to the directory lhht was started from.",
     )
     run_parser.add_argument(
         "--harness-dir",

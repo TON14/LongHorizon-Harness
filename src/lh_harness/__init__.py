@@ -15,7 +15,7 @@ HOMEPAGE = "https://github.com/AMAP-ML/LongHorizon-Harness"
 ISSUES_URL = f"{HOMEPAGE}/issues"
 
 try:
-    __version__ = _package_version("lh-harness")
+    __version__ = _package_version("lhht")
 except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
 

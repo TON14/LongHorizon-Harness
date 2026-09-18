@@ -1,7 +1,7 @@
 """Optional agent-CLI plugin setup, kept out of the task-execution path.
 
 Plugins are installed or removed only through explicit `lh-harness doctor`
-opt-in; `lh-harness run` never changes them.
+opt-in; `lhht run` never changes them.
 """
 
 from .codex_computer_use import (

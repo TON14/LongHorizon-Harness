@@ -2,7 +2,7 @@
 
 This is intentionally a small supervisor around the existing CLI rather than
 a second implementation of the Manager loop. The worker remains the normal
-``lh-harness run`` process, which keeps the execution kernel and old CLI
+``lhht run`` process, which keeps the execution kernel and old CLI
 compatible while giving the workbench a durable owner and command boundary.
 """
 
@@ -998,7 +998,7 @@ class RunSupervisor:
             return False
         if not current:
             return False
-        if "lh-harness" not in current and "lh_harness" not in current:
+        if "lh-harness" not in current and "lh_harness" not in current and "lhht" not in current:
             return False
         # Require the durable run boundary to be visible in argv as well. A
         # same-named executable alone is not enough protection from PID reuse.
