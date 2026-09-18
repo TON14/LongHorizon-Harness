@@ -41,6 +41,17 @@ The PyPI package `lh-harness` is upstream's release and does not contain the
 work above — install from this repository:
 
 ```bash
+pip install lhht            # or: uv tool install lhht
+```
+
+> **Naming note:** the PyPI distribution and the console command are `lhht`,
+> while the importable Python module keeps the historical name — `import
+> lh_harness` — and the per-project state lives in `.lh-harness/`. Nothing
+> else about the tool is called lh-harness.
+
+Building from source (what the development loop uses):
+
+```bash
 git clone https://github.com/TON14/LongHorizon-Harness.git
 cd LongHorizon-Harness
 npm run build --prefix frontend/web   # the Web workbench bundle
