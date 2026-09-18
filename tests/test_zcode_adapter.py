@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from lhht import agent_logs
 from lhht.adapters import zcode as zcode_adapter_module
 from lhht.adapters.zcode import ZCodeAdapter, permission_mode_for_role
-from lhht.adapters.zcode_runner import run
+from lhht.adapters.zcode_runner import ATTACHED_TASK_INSTRUCTION, run
 from lhht.environment.local import LocalEnvironment
 from lhht.types import EpisodeBudget
 from lhht.utils.agent_cli import resolve_zcode_binary
@@ -318,6 +319,65 @@ def test_zcode_runner_preserves_failure_and_stderr(tmp_path: Path, capfd) -> Non
     # The CLI's stderr rides inside the record rather than the runner's own
     # stderr, so the episode log carries the provider's reason.
     assert "model config is missing" in record["error"]
+
+
+@pytest.mark.parametrize("via_attach", [False, True])
+def test_zcode_runner_task_deliveries_work_on_every_platform(
+    tmp_path: Path,
+    capsys,
+    via_attach: bool,
+) -> None:
+    """Both deliveries, exercised regardless of the host OS.
+
+    The attach route exists because Windows caps the command line at 32767
+    characters and role prompts run 30-40 KB; if only Windows machines ever
+    executed it, a change in zcode's --attach handling would surface as
+    agents silently receiving the instruction instead of the task. This is
+    the tripwire.
+    """
+    binary = _executable(tmp_path / "bin" / "zcode", "print(' '.join(sys.argv[1:]))\n")
+    prompt_path = tmp_path / "prompt.md"
+    prompt = ("x" * 9000) + " unique-tail-token"
+    prompt_path.write_text(prompt, encoding="utf-8")
+
+    assert run(binary, prompt_path, "glm-5.3", task_via_attach=via_attach) == 0
+
+    record = json.loads(capsys.readouterr().out)
+    text = record["text"]
+    if via_attach:
+        # The task must not ride on the command line at all...
+        assert "unique-tail-token" not in text
+        assert "--attach" in text
+        assert str(prompt_path) in text
+        assert text.endswith(ATTACHED_TASK_INSTRUCTION)
+    else:
+        assert text.endswith("unique-tail-token")
+        assert "--attach" not in text
+
+
+def test_zcode_runner_launches_cjs_through_node(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not on PATH")
+    script = tmp_path / "bin" / "zcode.cjs"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "console.log(JSON.stringify({response: process.argv.slice(2).join(' ')}))\n",
+        encoding="utf-8",
+    )
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("do the work", encoding="utf-8")
+
+    assert run(str(script), prompt_path, "glm-5.3", mode="plan") == 0
+
+    record = json.loads(capsys.readouterr().out)
+    argv = record["text"].split(" ")
+    assert argv[0] == "--json"
+    assert argv[argv.index("--mode") + 1] == "plan"
+    assert record["text"].endswith("do the work")
 
 
 def test_zcode_jsonl_views() -> None:
