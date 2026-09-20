@@ -1460,8 +1460,11 @@ def _should_accept_auditor_format_repair(result: EpisodeResult, report_text: str
 
 
 def _format_repair_budget(budget: EpisodeBudget) -> EpisodeBudget:
+    # Header repair feeds the full auditor report back through the model; on
+    # max-reasoning backends a 120s cap timed out repeatedly in live runs
+    # (2026-09-20: three 120s timeouts in one task), so allow up to 10 minutes.
     return EpisodeBudget(
-        max_duration_seconds=max(30, min(budget.max_duration_seconds, 120)),
+        max_duration_seconds=max(30, min(budget.max_duration_seconds, 600)),
     )
 
 
