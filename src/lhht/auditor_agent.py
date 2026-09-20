@@ -36,7 +36,7 @@ _INTEGRITY_CONTROL_LINE_RE = re.compile(
 _CONTRACT_AUDIT_CONTROL_LINE_RE = re.compile(
     r"^\s*(?:\*\*)?\s*(?:契约审计|contract(?:[_\s-]*audit)?|аудит\s*контракта)\s*[:：]\s*"
     r"(aligned|unknown|needs[_\s-]*revision|invalid|对齐|未知|需修订|需要修订|无效"
-    r"|согласован|неизвестно|требуется[_\s]*доработка|требует[_\s]*доработки|невалиден)"
+    r"|согласован|выровнен|выровнено|неизвестно|требуется[_\s]*доработка|требует[_\s]*доработки|невалиден)"
     r"\s*(?:\*\*)?\s*$",
     re.I,
 )
@@ -444,7 +444,7 @@ def _parse_contract_audit_control_header(text: str) -> str | None:
     if not match:
         return None
     value = match.group(1).lower().replace("-", "_").replace(" ", "_")
-    if value in {"aligned", "对齐", "согласован"}:
+    if value in {"aligned", "对齐", "согласован", "выровнен", "выровнено"}:
         return "aligned"
     if value in {"needs_revision", "需修订", "需要修订", "требуется_доработка", "требует_доработки"}:
         return "needs_revision"
