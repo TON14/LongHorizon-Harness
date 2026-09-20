@@ -29,7 +29,7 @@ _STATUS_CONTROL_LINE_RE = re.compile(
 )
 _INTEGRITY_CONTROL_LINE_RE = re.compile(
     r"^\s*(?:\*\*)?\s*(?:完整性|integrity|целостность)\s*[:：]\s*"
-    r"(clean|suspect|violation|чисто|подозрительно|нарушение)"
+    r"(clean|suspect|violation|чисто|чистая|без\s+нарушений|нет\s+нарушений|нарушений\s+нет|подозрительно|нарушение|с\s+нарушениями)"
     r"\s*(?:\*\*)?\s*$",
     re.I,
 )
@@ -427,7 +427,16 @@ def _parse_integrity_control_header(text: str) -> str | None:
     if not match:
         return None
     value = match.group(1).lower()
-    ru = {"чисто": "clean", "подозрительно": "suspect", "нарушение": "violation"}
+    ru = {
+        "чисто": "clean",
+        "чистая": "clean",
+        "без нарушений": "clean",
+        "нет нарушений": "clean",
+        "нарушений нет": "clean",
+        "подозрительно": "suspect",
+        "нарушение": "violation",
+        "с нарушениями": "violation",
+    }
     return ru.get(value, value)
 
 
