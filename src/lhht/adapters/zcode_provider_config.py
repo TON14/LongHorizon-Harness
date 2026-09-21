@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Sequence
 
 PROVIDER_ID = "zai-direct"
 REASONING_LEVELS = ("low", "high", "max")
@@ -42,7 +43,7 @@ def default_provider_config_path() -> Path:
     return Path.home() / ".zcode" / "v2" / "provider_config.json"
 
 
-def _provider_rule(api_key: str, base_url: str, model_id: str) -> dict:
+def _provider_rule(api_key: str, base_url: str, model_ids: Sequence[str]) -> dict:
     return {
         "providerId": PROVIDER_ID,
         "providerName": "Z.ai Direct (lhht)",
@@ -52,7 +53,7 @@ def _provider_rule(api_key: str, base_url: str, model_id: str) -> dict:
             "access": {"type": "zhipu-coding-plan-api-key", "apiKey": api_key},
             "api": {"type": "anthropic-messages", "baseUrl": base_url},
             "visibility": "visible",
-            "personalModelIds": [model_id],
+            "personalModelIds": list(model_ids),
         },
     }
 
@@ -85,8 +86,16 @@ def ensure_provider_config(
     """Merge the harness provider into ZCode's personal provider config.
 
     Idempotent: an existing ``zai-direct`` entry is refreshed in place (key,
-    endpoint, model list) and the matching model rule is upserted. Any other
-    rules in the file are preserved. Returns the config path.
+    endpoint) and the matching model rule is upserted. Any other rules in the
+    file are preserved. Returns the config path.
+
+    The model list is *merged*, never replaced: the file is machine-global, so
+    two lhht runs using different models concurrently (say glm-5.3 and
+    glm-5.3-flash) each re-register on every episode, and a replace here made
+    the last writer evict the other run's model — its next ``session/create``
+    then died with ``Provider Registry 中不存在 Model``. Models of runs that
+    no longer exist stay registered; that is harmless (an id is only consulted
+    when requested) and self-heals if the user ever resets the file.
     """
     model_id = (model_id or "").strip()
     if not model_id:
@@ -115,7 +124,23 @@ def ensure_provider_config(
     if not isinstance(provider_rules, list):
         provider_rules = []
         rules["providerRules"] = provider_rules
-    new_rule = _provider_rule(api_key, base_url, model_id)
+    existing_model_ids: list[str] = []
+    for rule in provider_rules:
+        if isinstance(rule, dict) and rule.get("providerId") == PROVIDER_ID:
+            rule_config = rule.get("config")
+            ids = (
+                rule_config.get("personalModelIds")
+                if isinstance(rule_config, dict)
+                else None
+            )
+            if isinstance(ids, list):
+                existing_model_ids = [
+                    m for m in ids if isinstance(m, str) and m.strip() and m != model_id
+                ]
+            break
+    new_rule = _provider_rule(
+        api_key, base_url, [model_id, *existing_model_ids]
+    )
     for index, rule in enumerate(provider_rules):
         if isinstance(rule, dict) and rule.get("providerId") == PROVIDER_ID:
             provider_rules[index] = new_rule

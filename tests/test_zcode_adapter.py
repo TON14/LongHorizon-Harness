@@ -186,6 +186,46 @@ def test_ensure_provider_config_rejects_empty_model(tmp_path: Path) -> None:
         ensure_provider_config("key", "", path=tmp_path / "p.json")
 
 
+def test_ensure_provider_config_merges_concurrent_run_models(tmp_path: Path) -> None:
+    """Two lhht runs with different models share one machine-global config.
+
+    Each run re-registers on every episode; a replace here evicted the other
+    run's model and its next session/create died with
+    ``Provider Registry 中不存在 Model``. The list must merge instead.
+    """
+    config_path = tmp_path / "provider_config.json"
+    ensure_provider_config("key-1", "glm-5.3", path=config_path)
+    ensure_provider_config("key-1", "glm-5.3-flash", path=config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    rules = payload["config"]["providerConfigRules"]["providerRules"]
+    harness = [r for r in rules if r["providerId"] == PROVIDER_ID]
+    assert len(harness) == 1
+    assert sorted(harness[0]["config"]["personalModelIds"]) == [
+        "glm-5.3",
+        "glm-5.3-flash",
+    ]
+    manual = payload["config"]["modelConfigRules"]["manualProviderModelRules"]
+    assert {(m["providerId"], m["modelId"]) for m in manual} == {
+        (PROVIDER_ID, "glm-5.3"),
+        (PROVIDER_ID, "glm-5.3-flash"),
+    }
+
+    # Re-registering the first model is a no-op on the list, not a removal.
+    ensure_provider_config("key-2", "glm-5.3", path=config_path)
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    harness = [
+        r
+        for r in payload["config"]["providerConfigRules"]["providerRules"]
+        if r["providerId"] == PROVIDER_ID
+    ]
+    assert len(harness) == 1
+    assert sorted(harness[0]["config"]["personalModelIds"]) == [
+        "glm-5.3",
+        "glm-5.3-flash",
+    ]
+    assert harness[0]["config"]["access"]["apiKey"] == "key-2"
+
+
 def _fake_app_server_script() -> str:
     """A tiny ZCode Protocol app-server lookalike for runner tests."""
     return r"""
