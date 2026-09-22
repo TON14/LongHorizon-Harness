@@ -36,7 +36,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from semif_phase1 import core
 from semif_phase1.direct import score as direct_score
 
-_STATE: dict = {"score_fn": None, "backend": None, "scored": 0, "lock": threading.Lock()}
+_STATE: dict = {"score_fn": None, "shared_fn": None, "backend": None,
+                "scored": 0, "lock": threading.Lock()}
 
 
 def _load(args: argparse.Namespace):
@@ -50,8 +51,10 @@ def _load(args: argparse.Namespace):
         def score(row):
             return backend.score(model, tokenizer, row, metadata,
                                  max_tokens=args.max_tokens)
+        shared_score = None
     elif args.backend == "torch":
         from semif_phase1.core import load_causal_model
+        from semif_phase1.shared import score_shared
 
         model, tokenizer, metadata = load_causal_model(
             args.model, args.revision, device=args.device, dtype=args.dtype
@@ -60,10 +63,47 @@ def _load(args: argparse.Namespace):
         def score(row):
             return direct_score(model, tokenizer, row, metadata,
                                 max_tokens=args.max_tokens)
+
+        def shared_score(rows):
+            results, _timing = score_shared(
+                model, tokenizer, rows, metadata, max_tokens=args.max_tokens
+            )
+            return results
     else:
         raise SystemExit(f"unsupported backend: {args.backend}")
     _STATE["score_fn"] = score
+    _STATE["shared_fn"] = shared_score
     _STATE["backend"] = args.backend
+
+
+def _score_rows(rows: list) -> list:
+    """Score rows, routing consecutive same-state runs through shared prefixes.
+
+    A battery over one big evidence state (the auditor-fast gate) then pays
+    one prefill instead of re-encoding thousands of tokens per question.
+    SemIf notes BF16 cache reuse can shift a few argmaxes (5-6/777 on their
+    fixture), so any shared-path failure falls back to per-row direct scoring
+    and short mixed batches stay direct.
+    """
+    score = _STATE["score_fn"]
+    shared = _STATE["shared_fn"]
+    results: list = []
+    index = 0
+    while index < len(rows):
+        end = index
+        while end < len(rows) and rows[end]["state"] == rows[index]["state"]:
+            end += 1
+        group = rows[index:end]
+        if len(group) > 1 and shared is not None:
+            try:
+                results.extend(shared(group))
+                index = end
+                continue
+            except Exception:
+                pass  # fall back to per-row direct below
+        results.extend(score(row) for row in group)
+        index = end
+    return results
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -103,8 +143,8 @@ class Handler(BaseHTTPRequestHandler):
             with _STATE["lock"]:
                 for row in rows:
                     core.validate_row(row)
-                    results.append(_STATE["score_fn"](row))
-                    _STATE["scored"] += 1
+                results = _score_rows(rows)
+                _STATE["scored"] += len(results)
             self._json(200, {"results": results})
         except Exception as exc:  # strict SemIf errors become 400s, not crashes
             self._json(400, {"error": f"{type(exc).__name__}: {exc}"})
