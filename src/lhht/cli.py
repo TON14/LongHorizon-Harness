@@ -1922,6 +1922,7 @@ def _run_command(args: argparse.Namespace) -> int:
                     ),
                     progress=_print_progress,
                     resume=bool(getattr(args, "resume", False)),
+                    guard_exclude_paths=guard_exclude_paths,
                     **role_agents,
                 ),
                 run_dir=run_dir,

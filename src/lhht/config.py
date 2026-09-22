@@ -28,6 +28,8 @@ _SEMIF_KEYS = {
     "gguf",
     "threshold",
     "timeout_seconds",
+    "auditor_fast",
+    "auditor_fast_threshold",
 }
 _RUN_KEYS = {
     "agent",
@@ -320,6 +322,18 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
     if "timeout_seconds" in semif:
         defaults["semif_timeout_seconds"] = _positive_int(
             semif["timeout_seconds"], "run.semif.timeout_seconds"
+        )
+    # The auditor-fast pre-gate has its own switch and threshold inside the
+    # same table, but unlike salvage it stays silently off when the scorer is
+    # unusable: skipping the slow auditor is an optimization, so a missing or
+    # misconfigured gate must degrade to today's behavior, not refuse to load.
+    if "auditor_fast" in semif:
+        defaults["semif_auditor_fast"] = _boolean(
+            semif["auditor_fast"], "run.semif.auditor_fast"
+        )
+    if "auditor_fast_threshold" in semif:
+        defaults["semif_auditor_fast_threshold"] = _threshold(
+            semif["auditor_fast_threshold"], "run.semif.auditor_fast_threshold"
         )
     if defaults.get("semif_enabled"):
         missing = [

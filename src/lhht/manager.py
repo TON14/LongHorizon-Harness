@@ -69,6 +69,13 @@ from .auditor_agent import (
     auditor_report_text_from_episode_result,
     audit_report_from_episode_result,
 )
+from .auditor_fast import (
+    RoundContext,
+    gate_report_text,
+    gather_gate_evidence,
+    resolve_fast_gate,
+    run_gate,
+)
 
 IS_WINDOWS = sys.platform == "win32"
 ROLE_VARIANT = "lhht_role_managed"
@@ -186,6 +193,7 @@ async def _run_impl(
     pending_instructions: Callable[[], list[str]] | None = None,
     progress: Callable[[str, dict[str, Any]], None] | None = None,
     resume: bool = False,
+    guard_exclude_paths: tuple[str, ...] = (),
     _run_progress: _RunProgress | None = None,
 ) -> dict[str, Any]:
     """Run the generic LongHorizon-Harness four-role management loop.
@@ -260,6 +268,12 @@ async def _run_impl(
     _ensure_dir_nofollow(rounds_dir)
     events_path = role_dir / "events.jsonl"
     started = time.monotonic()
+
+    # auditor-fast pre-gate (fail-only), resolved once per run from the
+    # project's optional [run.semif] table: with the switch absent/false, no
+    # scorer configured, or any resolution failure there is no scorer and the
+    # loop below stays byte-for-byte identical to a run without the gate.
+    fast_gate_scorer, fast_gate_threshold = resolve_fast_gate()
 
     await _ensure_remote_layout(env, config)
 
@@ -784,6 +798,68 @@ async def _run_impl(
             duration_ms=executor_result.duration_ms,
         )
 
+        # auditor-fast pre-gate: when [run.semif] enables it, the local scorer
+        # answers a small battery of narrow questions about live evidence
+        # (VCS status, executor output, contract constraints, plan). Fail-only:
+        # a confident fail skips the slow auditor episode and leaves a
+        # synthetic incomplete audit; pass, low confidence, and any scorer
+        # failure launch the auditor exactly as today. The gate can never
+        # satisfy `done` acceptance -- its report always parses incomplete.
+        fast_gate_payload: dict[str, Any] | None = None
+        if fast_gate_scorer is not None:
+            fast_evidence = gather_gate_evidence(
+                config,
+                RoundContext(
+                    plan_text=plan_text,
+                    executor_output=executor_output,
+                    task_contract=current_task_contract,
+                    guard_exclude_paths=tuple(guard_exclude_paths),
+                ),
+            )
+            fast_decision = run_gate(fast_gate_scorer, fast_evidence, fast_gate_threshold)
+            fast_gate_payload = {
+                "verdict": fast_decision.verdict,
+                "battery": fast_decision.battery,
+                "evidence_digest": fast_evidence.digest(),
+            }
+            _append_event(
+                events_path,
+                "auditor_fast_gate",
+                {"round": round_index, **fast_gate_payload},
+            )
+            if fast_decision.verdict == "fail":
+                auditor_report = gate_report_text(fast_decision, fast_evidence)
+                _write_local(round_dir / "auditor_report.txt", auditor_report)
+                await _write_remote_round_text(env, config, round_index, "auditor_report.txt", auditor_report)
+                record = ManagedRound(
+                    round_index=round_index,
+                    next_step=next_step,
+                    plan_text=plan_text,
+                    executor_output=executor_output,
+                    auditor_report=auditor_report,
+                    task_state=current_task_state,
+                    task_contract=current_task_contract,
+                    related_report_refs=related_report_refs,
+                    executor_status=_episode_status(executor_result),
+                    auditor_status={
+                        "status": "skipped_by_fast_gate",
+                        "audit_status": "incomplete",
+                        "integrity_status": "clean",
+                        "contract_audit_status": "unknown",
+                        "auditor_fast_gate": fast_gate_payload,
+                    },
+                )
+                rounds.append(record)
+                await _record_round(env, config, role_dir, events_path, record)
+                _append_event(
+                    events_path,
+                    "auditor_fast_gate_skip",
+                    {"round": round_index},
+                )
+                if await _human_gate(gate, "progress", round_index, current_task_state):
+                    break
+                continue
+
         # The auditor audits only the just-finished subtask. Its natural
         # language report becomes the trusted intermediate state for later rounds.
         auditor_prompt = build_role_auditor_prompt(
@@ -951,6 +1027,11 @@ async def _run_impl(
             break
         _write_local(round_dir / "auditor_report.txt", auditor_report)
         await _write_remote_round_text(env, config, round_index, "auditor_report.txt", auditor_report)
+
+        if fast_gate_payload is not None:
+            # The slow auditor ran despite the gate; keep its verdict next to
+            # the auditor's so later analysis can compare the two decisions.
+            auditor_status = {**auditor_status, "auditor_fast_gate": fast_gate_payload}
 
         record = ManagedRound(
             round_index=round_index,
