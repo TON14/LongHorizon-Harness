@@ -9,6 +9,7 @@ from .config import load_run_defaults
 from .runtime_signals import hard_signal_labels
 from .semantic_salvage import (
     DEFAULT_THRESHOLD,
+    SALVAGE_QUESTION,
     SalvageResult,
     SemanticScorer,
     salvage_control_value,
@@ -92,6 +93,18 @@ _BLOCKING_ACCEPTANCE_SECTION_RE = re.compile(
 _NO_BLOCKING_ACCEPTANCE_RE = re.compile(
     r"(?ix)^\s*(?:[-*+]\s*|\d+[.)]\s*)?(?:无|没有|暂无|none|nothing|n/?a|not\s+applicable)(?:\s*[。.,，;；:].*)?\s*$"
 )
+# Salvage decision for the acceptance guard: a "Blocking constraints" line the
+# regex above missed is re-judged as a plain yes/no question rather than a
+# multi-value control, mirroring the control-line cascade (control name
+# "acceptance_none" in the salvage ledger).
+_ACCEPTANCE_NONE_QUESTION = (
+    "Does this line state that there are no blocking acceptance constraints?"
+)
+_ACCEPTANCE_NONE_LEGAL_VALUES = ["yes", "no"]
+_ACCEPTANCE_NONE_VALUE_DESCRIPTIONS = {
+    "yes": "The line states there are no blocking acceptance constraints (Блокирующих ограничений нет, 无阻断约束).",
+    "no": "The line states or lists actual blocking acceptance constraints (есть блокирующие ограничения, 存在阻断约束).",
+}
 # Every heading the auditor contract prompt mandates must terminate the blocking
 # section; otherwise a reordered report leaks the next section into it and the
 # acceptance guard downgrades an otherwise clean audit.
@@ -328,7 +341,7 @@ def audit_report_from_episode_result(
             action_guidance = extract_action_guidance(report_text)
     artifact_actions = _mark_unconfirmed_deletion_declarations(artifact_actions)
     report_text, status, contract_audit_status = _apply_acceptance_constraint_guard(
-        report_text, status, contract_audit_status, language=language
+        report_text, status, contract_audit_status, language=language, salvage=salvage
     )
     if (integrity_status == "violation" or contract_audit_status != "aligned") and status == "complete":
         status = "incomplete"
@@ -362,7 +375,7 @@ def parse_audit_report(
     integrity_status, integrity_findings = infer_integrity_findings(report_text, salvage)
     contract_audit_status = infer_contract_audit_status(report_text, salvage)
     report_text, status, contract_audit_status = _apply_acceptance_constraint_guard(
-        report_text, status, contract_audit_status, language=language
+        report_text, status, contract_audit_status, language=language, salvage=salvage
     )
     if (integrity_status == "violation" or contract_audit_status != "aligned") and status == "complete":
         status = "incomplete"
@@ -426,8 +439,11 @@ def _apply_acceptance_constraint_guard(
     contract_audit_status: str,
     *,
     language: str = "en",
+    salvage: _ControlSalvage | None = None,
 ) -> tuple[str, str, str]:
-    if status != "complete" or not _has_blocking_acceptance_constraints(report_text):
+    if status != "complete" or not _has_blocking_acceptance_constraints(
+        report_text, salvage
+    ):
         return report_text, status, contract_audit_status
     guarded = compact_auditor_report_text(
         report_text + "\n\n" + _text("completion_guard", language)
@@ -435,7 +451,9 @@ def _apply_acceptance_constraint_guard(
     return guarded, "incomplete", "unknown" if contract_audit_status == "aligned" else contract_audit_status
 
 
-def _has_blocking_acceptance_constraints(text: str) -> bool:
+def _has_blocking_acceptance_constraints(
+    text: str, salvage: _ControlSalvage | None = None
+) -> bool:
     lines = str(text or "").splitlines()
     for index, line in enumerate(lines):
         match = _BLOCKING_ACCEPTANCE_SECTION_RE.match(line)
@@ -443,7 +461,7 @@ def _has_blocking_acceptance_constraints(text: str) -> bool:
             continue
         rest = match.group("rest").strip()
         if rest:
-            return not _is_no_blocking_acceptance(rest)
+            return not _is_no_blocking_acceptance(rest, salvage)
         section_lines: list[str] = []
         for following in lines[index + 1 :]:
             stripped = following.strip()
@@ -452,12 +470,34 @@ def _has_blocking_acceptance_constraints(text: str) -> bool:
             if _ACCEPTANCE_SECTION_BOUNDARY_RE.match(stripped):
                 break
             section_lines.append(stripped)
-        return bool(section_lines) and not all(_is_no_blocking_acceptance(item) for item in section_lines)
+        return bool(section_lines) and not all(
+            _is_no_blocking_acceptance(item, salvage) for item in section_lines
+        )
     return False
 
 
-def _is_no_blocking_acceptance(text: str) -> bool:
-    return bool(_NO_BLOCKING_ACCEPTANCE_RE.match(str(text or "").strip().strip("`")))
+def _is_no_blocking_acceptance(
+    text: str, salvage: _ControlSalvage | None = None
+) -> bool:
+    stripped = str(text or "").strip().strip("`")
+    if _NO_BLOCKING_ACCEPTANCE_RE.match(stripped):
+        return True
+    # The regex missed; one semantic decision may still recognize an
+    # unfamiliar "none" phrasing. Salvage can only prevent a downgrade, so
+    # a lost decision (no scorer, failure, below threshold, argmax "no")
+    # keeps today's not-a-"none"-phrasing reading.
+    result = (
+        salvage.resolve(
+            "acceptance_none",
+            stripped,
+            _ACCEPTANCE_NONE_LEGAL_VALUES,
+            _ACCEPTANCE_NONE_VALUE_DESCRIPTIONS,
+            question=_ACCEPTANCE_NONE_QUESTION,
+        )
+        if salvage is not None
+        else None
+    )
+    return result is not None and result.value == "yes"
 
 
 # Semantic salvage for control lines the regexes missed. Salvage runs only
@@ -513,6 +553,8 @@ class _ControlSalvage:
         line: str,
         legal_values: list[str],
         descriptions: dict[str, str],
+        *,
+        question: str = SALVAGE_QUESTION,
     ) -> SalvageResult | None:
         if not self._resolved:
             if self._scorer is None:
@@ -528,7 +570,12 @@ class _ControlSalvage:
         key = (control, line)
         if key not in self._memo:
             result = salvage_control_value(
-                line, legal_values, descriptions, self._scorer, self._threshold
+                line,
+                legal_values,
+                descriptions,
+                self._scorer,
+                self._threshold,
+                question=question,
             )
             self._memo[key] = result
             if result is not None:

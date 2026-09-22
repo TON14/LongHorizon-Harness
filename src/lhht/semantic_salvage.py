@@ -180,13 +180,17 @@ def salvage_control_value(
     descriptions_by_value: dict[str, str],
     scorer: SemanticScorer | None,
     threshold: float = DEFAULT_THRESHOLD,
+    *,
+    question: str = SALVAGE_QUESTION,
 ) -> SalvageResult | None:
     """Recover a control value for a line the regexes did not match.
 
     Returns the winning legal value together with one probability per legal
     value (same order), or None when no scorer is configured, the scorer
     fails or raises, or the top probability stays below `threshold`. Ties go
-    to the earliest legal value, keeping salvage deterministic.
+    to the earliest legal value, keeping salvage deterministic. Callers whose
+    legal values are not control-line verdicts (e.g. a plain yes/no decision)
+    pass their own `question`; everything else behaves identically.
     """
     if scorer is None or not legal_values:
         return None
@@ -195,7 +199,7 @@ def salvage_control_value(
         for value in legal_values
     ]
     try:
-        probabilities = scorer.score(line, SALVAGE_QUESTION, options)
+        probabilities = scorer.score(line, question, options)
     except Exception:
         return None
     if not _valid_probabilities(probabilities, len(legal_values)):

@@ -66,6 +66,21 @@ revision = "<revision-sha>"
   also counts as valid for the format-repair trigger
   (`has_valid_auditor_control_header`), so a recoverable wording no longer
   burns the repair episode.
+- **Auditor "Blocking constraints" section** (`_apply_acceptance_constraint_guard`
+  in `src/lhht/auditor_agent.py`): the acceptance guard downgrades a complete
+  audit to incomplete when the report's "Blocking constraints" section is
+  non-empty and its inline rest or section lines are not one of the known
+  "none" phrasings (`_NO_BLOCKING_ACCEPTANCE_RE`). That regex now gets the
+  same salvage cascade: a line it misses is re-judged with one yes/no decision
+  — "Does this line state that there are no blocking acceptance constraints?"
+  — and a top probability at or above `threshold` with argmax `yes` treats the
+  line as a "none" phrasing, so a wording like «Блокирующих ограничений нет»
+  or "keine" no longer wrongly downgrades a clean complete verdict. Salvage
+  here can only prevent a downgrade, never cause one: a lost decision
+  (scorer failure, below threshold, or argmax `no`) keeps today's downgrade,
+  and recognized regex phrasings never reach the scorer. Rescued lines are
+  appended to the same `control_salvage` ledger under the control name
+  `acceptance_none`, with the per-option probabilities.
 - **Manager route line** (`src/lhht/role_prompts.py`): after the exact
   string sets miss, the miss path of `parse_role_manager_next_step()` tries
   salvage over the five legal routes — gui, cli, ask, done, blocked — before

@@ -777,6 +777,271 @@ def test_control_salvage_provenance_survives_serialization(fresh_salvage_state):
     assert legacy.control_salvage == []
 
 
+# --- acceptance guard salvage cascade ------------------------------------------
+#
+# _apply_acceptance_constraint_guard() downgrades a complete audit whose
+# "Blocking constraints" section line (or inline rest) is not a recognized
+# "none" phrasing. The extension mirrors the control-line cascade: the missed
+# line gets one confident yes/no decision, salvage can only prevent a
+# downgrade, and every lost decision keeps today's downgrade.
+
+ACCEPTANCE_REGEX_NONE_RAW = (
+    "Status: complete\n"
+    "Integrity: clean\n"
+    "Contract audit: aligned\n"
+    "\n"
+    "Blocking constraints: none\n"
+    "\n"
+    "Audit facts: checked directly."
+)
+ACCEPTANCE_MISS_INLINE_RAW = (
+    "Status: complete\n"
+    "Integrity: clean\n"
+    "Contract audit: aligned\n"
+    "\n"
+    "Blocking constraints: Блокирующих ограничений нет\n"
+    "\n"
+    "Audit facts: checked directly."
+)
+ACCEPTANCE_MISS_SECTION_RAW = (
+    "Status: complete\n"
+    "Integrity: clean\n"
+    "Contract audit: aligned\n"
+    "\n"
+    "Blocking constraints:\n"
+    "- none\n"
+    "- keine\n"
+    "\n"
+    "Audit facts: checked directly."
+)
+ACCEPTANCE_NONE_SALVAGE_RECORD = {
+    "control": "acceptance_none",
+    "value": "yes",
+    "probabilities": {"yes": 0.92, "no": 0.08},
+}
+
+
+class QuestionAwareScorer:
+    """FakeScorer returns one list for every call; salvage decisions with
+    different questions need different probabilities per question."""
+
+    def __init__(self, by_question):
+        self.by_question = by_question
+        self.calls: list[tuple[str, str]] = []
+
+    def score(self, state, question, options):
+        self.calls.append((state, question))
+        return self.by_question[question]
+
+
+def today_downgraded_by_acceptance_guard(report):
+    assert report.status == "incomplete"
+    assert report.contract_audit_status == "unknown"
+    assert "Harness completion guard:" in report.report_text
+
+
+def test_acceptance_regex_none_hit_keeps_complete_and_never_touches_the_scorer(
+    fresh_salvage_state,
+):
+    scorer = FakeScorer(probabilities=None)
+    report = parse_audit_report(ACCEPTANCE_REGEX_NONE_RAW, 1, scorer=scorer)
+    assert scorer.calls == []
+    assert report.status == "complete"
+    assert report.contract_audit_status == "aligned"
+    assert "Harness completion guard:" not in report.report_text
+    assert report.control_salvage == []
+
+
+def test_acceptance_ru_miss_with_confident_yes_keeps_complete_and_records_provenance(
+    fresh_salvage_state,
+):
+    scorer = FakeScorer(probabilities=[0.92, 0.08])
+    report = parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1, scorer=scorer)
+    assert report.status == "complete"
+    assert report.integrity_status == "clean"
+    assert report.contract_audit_status == "aligned"
+    assert "Harness completion guard:" not in report.report_text
+    assert report.control_salvage == [ACCEPTANCE_NONE_SALVAGE_RECORD]
+    assert len(scorer.calls) == 1
+    call = scorer.calls[0]
+    assert call["state"] == "Блокирующих ограничений нет"
+    assert call["question"] == (
+        "Does this line state that there are no blocking acceptance constraints?"
+    )
+    assert call["options"] == [
+        {
+            "id": value,
+            "description": auditor_agent._ACCEPTANCE_NONE_VALUE_DESCRIPTIONS[value],
+        }
+        for value in ("yes", "no")
+    ]
+
+
+def test_acceptance_section_line_miss_with_confident_yes_keeps_complete(
+    fresh_salvage_state,
+):
+    scorer = FakeScorer(probabilities=[0.9, 0.1])
+    report = parse_audit_report(ACCEPTANCE_MISS_SECTION_RAW, 1, scorer=scorer)
+    assert report.status == "complete"
+    assert report.contract_audit_status == "aligned"
+    assert "Harness completion guard:" not in report.report_text
+    assert report.control_salvage == [
+        {
+            "control": "acceptance_none",
+            "value": "yes",
+            "probabilities": {"yes": 0.9, "no": 0.1},
+        }
+    ]
+    # Only the regex-missed section line is re-judged; "- none" never is.
+    assert [call["state"] for call in scorer.calls] == ["- keine"]
+
+
+def test_acceptance_confident_no_downgrades_exactly_like_today(
+    monkeypatch, fresh_salvage_state
+):
+    monkeypatch.setattr(auditor_agent, "load_run_defaults", lambda: {})
+    downgraded = parse_audit_report(
+        ACCEPTANCE_MISS_INLINE_RAW, 1, scorer=FakeScorer(probabilities=[0.05, 0.95])
+    )
+    today_downgraded_by_acceptance_guard(downgraded)
+    assert downgraded.control_salvage == [
+        {
+            "control": "acceptance_none",
+            "value": "no",
+            "probabilities": {"yes": 0.05, "no": 0.95},
+        }
+    ]
+    # A lost decision changes nothing versus no salvage at all: salvage may
+    # only prevent a downgrade, never cause or intensify one.
+    today = parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1)
+    assert today.status == downgraded.status
+    assert today.contract_audit_status == downgraded.contract_audit_status
+    assert today.report_text == downgraded.report_text
+
+
+def test_acceptance_below_threshold_downgrades_as_today(fresh_salvage_state):
+    scorer = FakeScorer(probabilities=[0.6, 0.4])  # top "yes" stays below 0.8
+    report = parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1, scorer=scorer)
+    assert scorer.calls  # salvage was attempted and simply lost
+    today_downgraded_by_acceptance_guard(report)
+    assert report.control_salvage == []  # no confident decision was recorded
+
+
+@pytest.mark.parametrize(
+    "scorer",
+    (
+        FakeScorer(error=RuntimeError("semif is deliberately strict")),
+        FakeScorer(probabilities=None),
+    ),
+    ids=["scorer-raises", "scorer-returns-none"],
+)
+def test_acceptance_scorer_failure_downgrades_as_today(scorer, fresh_salvage_state):
+    today_downgraded_by_acceptance_guard(
+        parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1, scorer=scorer)
+    )
+
+
+def test_acceptance_disabled_config_stays_byte_identical(
+    monkeypatch, fresh_salvage_state
+):
+    monkeypatch.setattr(auditor_agent, "load_run_defaults", disabled_semif_defaults)
+
+    def must_not_construct(*args, **kwargs):
+        raise AssertionError("a disabled [run.semif] must construct no scorer")
+
+    monkeypatch.setattr(semantic_salvage_module, "SemifCliScorer", must_not_construct)
+    disabled = parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1)
+    monkeypatch.setattr(auditor_agent, "load_run_defaults", lambda: {})
+    absent = parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1)
+    assert audit_report_to_dict(disabled) == audit_report_to_dict(absent)
+    today_downgraded_by_acceptance_guard(disabled)
+
+
+def test_acceptance_enabled_config_supplies_the_scorer(
+    monkeypatch, fresh_salvage_state
+):
+    monkeypatch.setattr(
+        auditor_agent, "load_run_defaults", lambda: enabled_semif_defaults()
+    )
+    monkeypatch.setattr(
+        semantic_salvage_module,
+        "SemifCliScorer",
+        lambda *args, **kwargs: FakeScorer(probabilities=[0.92, 0.08]),
+    )
+    report = parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1)
+    assert report.status == "complete"
+    assert report.control_salvage == [ACCEPTANCE_NONE_SALVAGE_RECORD]
+
+
+def test_acceptance_config_threshold_governs_the_salvage(
+    monkeypatch, fresh_salvage_state
+):
+    monkeypatch.setattr(
+        auditor_agent,
+        "load_run_defaults",
+        lambda: enabled_semif_defaults(threshold=0.95),
+    )
+    monkeypatch.setattr(
+        semantic_salvage_module,
+        "SemifCliScorer",
+        lambda *args, **kwargs: FakeScorer(probabilities=[0.92, 0.08]),
+    )
+    today_downgraded_by_acceptance_guard(parse_audit_report(ACCEPTANCE_MISS_INLINE_RAW, 1))
+
+
+def test_acceptance_salvage_honors_an_explicit_threshold(fresh_salvage_state):
+    salvaged = parse_audit_report(
+        ACCEPTANCE_MISS_INLINE_RAW,
+        1,
+        scorer=FakeScorer(probabilities=[0.7, 0.3]),
+        threshold=0.6,
+    )
+    assert salvaged.status == "complete"
+    strict = parse_audit_report(
+        ACCEPTANCE_MISS_INLINE_RAW, 1, scorer=FakeScorer(probabilities=[0.7, 0.3])
+    )
+    assert strict.status == "incomplete"  # 0.7 stays below the 0.8 default
+
+
+def test_acceptance_salvage_appends_to_the_existing_ledger(fresh_salvage_state):
+    raw = (
+        "Статус: сделано, всё готово\n"
+        "Integrity: clean\n"
+        "Contract audit: aligned\n"
+        "\n"
+        "Blocking constraints: никаких блокеров\n"
+    )
+    scorer = QuestionAwareScorer(
+        {
+            SALVAGE_QUESTION: [0.9, 0.08, 0.02],
+            auditor_agent._ACCEPTANCE_NONE_QUESTION: [0.93, 0.07],
+        }
+    )
+    report = parse_audit_report(raw, 1, scorer=scorer)
+    assert report.status == "complete"
+    assert report.contract_audit_status == "aligned"
+    assert [record["control"] for record in report.control_salvage] == [
+        "status",
+        "acceptance_none",
+    ]
+    assert report.control_salvage[1] == {
+        "control": "acceptance_none",
+        "value": "yes",
+        "probabilities": {"yes": 0.93, "no": 0.07},
+    }
+
+
+def test_acceptance_episode_result_records_salvage_provenance(fresh_salvage_state):
+    scorer = FakeScorer(probabilities=[0.92, 0.08])
+    result = EpisodeResult(
+        status="done", actions_log=ACCEPTANCE_MISS_INLINE_RAW, duration_ms=10
+    )
+    report = audit_report_from_episode_result(result, 1, scorer=scorer)
+    assert report.status == "complete"
+    assert report.contract_audit_status == "aligned"
+    assert report.control_salvage == [ACCEPTANCE_NONE_SALVAGE_RECORD]
+
+
 # --- manager route salvage cascade ---------------------------------------------
 #
 # parse_role_manager_next_step() keeps the string sets as the only fast path
