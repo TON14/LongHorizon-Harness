@@ -131,3 +131,18 @@ def test_audit_report_prose_without_header_stays_invalid() -> None:
     assert report.status == "blocked"
     assert report.integrity_status == "suspect"
     assert report.contract_audit_status == "unknown"
+
+
+def test_audit_report_parses_hyphenated_russian_contract_label() -> None:
+    raw = (
+        "Статус: завершено\n"
+        "Целостность: чисто\n"
+        "Контракт-аудит: выровнено\n"
+        "\n"
+        "## Сводка аудита\n"
+        "Проверено напрямую."
+    )
+    report = parse_audit_report(raw, 1)
+    assert report.status == "complete"
+    assert report.integrity_status == "clean"
+    assert report.contract_audit_status == "aligned"

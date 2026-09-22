@@ -5,7 +5,15 @@ from typing import Any
 
 from .agent_logs import assistant_texts as decode_agent_assistant_texts
 from .agent_logs import visible_output as decode_agent_visible_output
+from .config import load_run_defaults
 from .runtime_signals import hard_signal_labels
+from .semantic_salvage import (
+    DEFAULT_THRESHOLD,
+    SalvageResult,
+    SemanticScorer,
+    salvage_control_value,
+    scorer_from_config,
+)
 from .types import DEFAULT_WORKSPACE_PATH, EpisodeResult, AuditReport, PromptLanguage
 
 COMPACT_REPORT_CHARS = 2_500
@@ -34,12 +42,49 @@ _INTEGRITY_CONTROL_LINE_RE = re.compile(
     re.I,
 )
 _CONTRACT_AUDIT_CONTROL_LINE_RE = re.compile(
-    r"^\s*(?:\*\*)?\s*(?:契约审计|contract(?:[_\s-]*audit)?|аудит\s*контракта)\s*[:：]\s*"
+    r"^\s*(?:\*\*)?\s*(?:契约审计|contract(?:[_\s-]*audit)?|аудит\s*контракта|контракт[-_\s]*аудит)\s*[:：]\s*"
     r"(aligned|unknown|needs[_\s-]*revision|invalid|对齐|未知|需修订|需要修订|无效"
     r"|согласован|выровнен|выровнено|соответствует|неизвестно|требуется[_\s]*доработка|требует[_\s]*доработки|невалиден)"
     r"\s*(?:\*\*)?\s*$",
     re.I,
 )
+# Label-only prefixes of the three control regexes above. Semantic salvage
+# uses them to locate the line whose *value* the regex missed: the label is
+# there, the wording is just not one the value alternation knows yet.
+_STATUS_LABEL_LINE_RE = re.compile(
+    r"^\s*(?:\*\*)?\s*(?:状态|status|статус)\s*[:：]",
+    re.I,
+)
+_INTEGRITY_LABEL_LINE_RE = re.compile(
+    r"^\s*(?:\*\*)?\s*(?:完整性|integrity|целостность)\s*[:：]",
+    re.I,
+)
+_CONTRACT_AUDIT_LABEL_LINE_RE = re.compile(
+    r"^\s*(?:\*\*)?\s*(?:契约审计|contract(?:[_\s-]*audit)?|аудит\s*контракта|контракт[-_\s]*аудит)\s*[:：]",
+    re.I,
+)
+# Canonical salvage outcomes per control line, in the parsers' own value
+# order, with scorer-facing descriptions in the control prompts' bilingual
+# spirit; the canonical spellings anchor the decision.
+_STATUS_LEGAL_VALUES = ["complete", "incomplete", "blocked"]
+_STATUS_VALUE_DESCRIPTIONS = {
+    "complete": "Task complete; every deliverable is done (завершено, 完成).",
+    "incomplete": "Task incomplete; deliverables remain (незавершено, 未完成).",
+    "blocked": "Task blocked; a dependency failed (заблокирован, 阻塞).",
+}
+_INTEGRITY_LEGAL_VALUES = ["clean", "suspect", "violation"]
+_INTEGRITY_VALUE_DESCRIPTIONS = {
+    "clean": "Integrity clean; no violations found (без нарушений).",
+    "suspect": "Integrity suspect; evidence unverified (подозрительно).",
+    "violation": "Integrity violation confirmed (с нарушениями).",
+}
+_CONTRACT_AUDIT_LEGAL_VALUES = ["aligned", "unknown", "needs_revision", "invalid"]
+_CONTRACT_AUDIT_VALUE_DESCRIPTIONS = {
+    "aligned": "Execution aligns with the task contract (согласован, 对齐).",
+    "unknown": "Contract compliance could not be determined (неизвестно, 未知).",
+    "needs_revision": "The task contract needs revision (требуется доработка, 需修订).",
+    "invalid": "The contract audit itself is invalid (невалиден, 无效).",
+}
 _BLOCKING_ACCEPTANCE_SECTION_RE = re.compile(
     r"^\s*(?:[-*]\s*)?(?:阻断约束|blocking\s+(?:acceptance\s+)?(?:constraints?|claims?))\s*[:：]\s*(?P<rest>.*)$",
     re.I,
@@ -190,6 +235,8 @@ def audit_report_from_episode_result(
     round_index: int,
     *,
     language: str = "en",
+    scorer: SemanticScorer | None = None,
+    threshold: float | None = None,
 ) -> AuditReport:
     """Convert a auditor role episode into the structured report used by the runner.
 
@@ -208,16 +255,17 @@ def audit_report_from_episode_result(
             action_guidance=_text("runtime_failed_guidance", language),
         )
 
+    salvage = _ControlSalvage(scorer=scorer, threshold=threshold)
     report_text = compact_auditor_report_text(
         extract_auditor_report_text(_episode_visible_output(result))
     )
-    if not _has_valid_control_header(report_text):
+    if not _has_valid_control_header(report_text, salvage):
         report_text = _invalid_control_header_report(report_text, language=language)
-    status = infer_report_status(report_text)
+    status = infer_report_status(report_text, salvage)
     state_summary = extract_state_summary(report_text)
     action_guidance = extract_action_guidance(report_text)
-    integrity_status, integrity_findings = infer_integrity_findings(report_text)
-    contract_audit_status = infer_contract_audit_status(report_text)
+    integrity_status, integrity_findings = infer_integrity_findings(report_text, salvage)
+    contract_audit_status = infer_contract_audit_status(report_text, salvage)
     artifact_actions = extract_deleted_artifact_actions(report_text) if integrity_status == "violation" else []
     if result.metadata.get("verifier_workspace_mutation_detected"):
         paths = _mutation_paths(result.metadata.get("verifier_workspace_mutations"))
@@ -294,16 +342,25 @@ def audit_report_from_episode_result(
         contract_audit_status=contract_audit_status,
         integrity_findings=integrity_findings,
         artifact_actions=artifact_actions,
+        control_salvage=salvage.records,
     )
 
 
-def parse_audit_report(raw: str, round_index: int, *, language: str = "en") -> AuditReport:
+def parse_audit_report(
+    raw: str,
+    round_index: int,
+    *,
+    language: str = "en",
+    scorer: SemanticScorer | None = None,
+    threshold: float | None = None,
+) -> AuditReport:
+    salvage = _ControlSalvage(scorer=scorer, threshold=threshold)
     report_text = compact_auditor_report_text(extract_auditor_report_text(raw))
-    if not _has_valid_control_header(report_text):
+    if not _has_valid_control_header(report_text, salvage):
         report_text = _invalid_control_header_report(report_text, language=language)
-    status = infer_report_status(report_text)
-    integrity_status, integrity_findings = infer_integrity_findings(report_text)
-    contract_audit_status = infer_contract_audit_status(report_text)
+    status = infer_report_status(report_text, salvage)
+    integrity_status, integrity_findings = infer_integrity_findings(report_text, salvage)
+    contract_audit_status = infer_contract_audit_status(report_text, salvage)
     report_text, status, contract_audit_status = _apply_acceptance_constraint_guard(
         report_text, status, contract_audit_status, language=language
     )
@@ -319,6 +376,7 @@ def parse_audit_report(raw: str, round_index: int, *, language: str = "en") -> A
         contract_audit_status=contract_audit_status,
         integrity_findings=integrity_findings,
         artifact_actions=extract_deleted_artifact_actions(report_text) if integrity_status == "violation" else [],
+        control_salvage=salvage.records,
     )
 
 
@@ -343,15 +401,23 @@ def _episode_visible_output(result: EpisodeResult) -> str:
 
 
 def has_valid_auditor_control_header(text: str) -> bool:
-    return _has_valid_control_header(str(text or ""))
+    # The manager's format-repair trigger reads this predicate: a header
+    # recovered by [run.semif] salvage counts as valid here too, so a
+    # recoverable wording no longer burns the repair episode. With salvage
+    # not configured this stays the regex-only check it always was.
+    return _has_valid_control_header(str(text or ""), _ControlSalvage())
 
 
-def infer_report_status(text: str) -> str:
-    return _parse_status_control_header(text) or "blocked"
+def infer_report_status(
+    text: str, salvage: _ControlSalvage | None = None
+) -> str:
+    return _parse_status_control_header(text, salvage) or "blocked"
 
 
-def infer_contract_audit_status(text: str) -> str:
-    return _parse_contract_audit_control_header(text) or "unknown"
+def infer_contract_audit_status(
+    text: str, salvage: _ControlSalvage | None = None
+) -> str:
+    return _parse_contract_audit_control_header(text, salvage) or "unknown"
 
 
 def _apply_acceptance_constraint_guard(
@@ -394,7 +460,116 @@ def _is_no_blocking_acceptance(text: str) -> bool:
     return bool(_NO_BLOCKING_ACCEPTANCE_RE.match(str(text or "").strip().strip("`")))
 
 
-def _parse_status_control_header(text: str) -> str | None:
+# Semantic salvage for control lines the regexes missed. Salvage runs only
+# after a control regex missed -- a regex hit never resolves the scorer at
+# all. An optional [run.semif] table supplies the scorer; with the section
+# absent or disabled nothing is constructed and every miss keeps today's
+# fallback verdict.
+_PROJECT_SALVAGE_SETTINGS: dict[str, tuple[SemanticScorer | None, float]] = {}
+
+
+def _project_salvage_settings() -> tuple[SemanticScorer | None, float]:
+    """Resolve the optional [run.semif] scorer and threshold once per process."""
+    if "settings" not in _PROJECT_SALVAGE_SETTINGS:
+        try:
+            defaults = load_run_defaults()
+            threshold = defaults.get("semif_threshold", DEFAULT_THRESHOLD)
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+                threshold = DEFAULT_THRESHOLD
+            _PROJECT_SALVAGE_SETTINGS["settings"] = (
+                scorer_from_config(defaults),
+                float(threshold),
+            )
+        except Exception:
+            # A missing or broken config must degrade to no salvage, never
+            # crash control-line parsing.
+            _PROJECT_SALVAGE_SETTINGS["settings"] = (None, DEFAULT_THRESHOLD)
+    return _PROJECT_SALVAGE_SETTINGS["settings"]
+
+
+class _ControlSalvage:
+    """One report's salvage context: lazy scorer, one decision per missed
+    line, and the provenance ledger the parsed report records.
+
+    The header validity check and the three verdict extractions re-parse the
+    same text, so decisions are memoized per (control, line): the scorer runs
+    at most once per missed control line per report.
+    """
+
+    def __init__(
+        self,
+        scorer: SemanticScorer | None = None,
+        threshold: float | None = None,
+    ) -> None:
+        self._scorer = scorer
+        self._threshold = threshold
+        self._resolved = False
+        self._memo: dict[tuple[str, str], SalvageResult | None] = {}
+        self.records: list[dict[str, Any]] = []
+
+    def resolve(
+        self,
+        control: str,
+        line: str,
+        legal_values: list[str],
+        descriptions: dict[str, str],
+    ) -> SalvageResult | None:
+        if not self._resolved:
+            if self._scorer is None:
+                configured_scorer, configured_threshold = _project_salvage_settings()
+                self._scorer = configured_scorer
+                if self._threshold is None:
+                    self._threshold = configured_threshold
+            if self._threshold is None:
+                # An explicitly passed scorer keeps the default threshold
+                # instead of reading the project config.
+                self._threshold = DEFAULT_THRESHOLD
+            self._resolved = True
+        key = (control, line)
+        if key not in self._memo:
+            result = salvage_control_value(
+                line, legal_values, descriptions, self._scorer, self._threshold
+            )
+            self._memo[key] = result
+            if result is not None:
+                self.records.append(
+                    {
+                        "control": control,
+                        "value": result.value,
+                        "probabilities": dict(
+                            zip(legal_values, result.probabilities)
+                        ),
+                    }
+                )
+        return self._memo[key]
+
+
+def _salvage_control_line(
+    text: str,
+    salvage: _ControlSalvage | None,
+    control: str,
+    label_line_re: re.Pattern[str],
+    legal_values: list[str],
+    descriptions: dict[str, str],
+) -> str | None:
+    """Recover a control value for a label line the value regex missed."""
+    if salvage is None:
+        return None
+    line = next(
+        (window for window in _control_lines_window(text) if label_line_re.match(window)),
+        None,
+    )
+    if line is None:
+        # No line in the window even carries the control label; there is
+        # nothing to re-judge.
+        return None
+    result = salvage.resolve(control, line, legal_values, descriptions)
+    return result.value if result is not None else None
+
+
+def _parse_status_control_header(
+    text: str, salvage: _ControlSalvage | None = None
+) -> str | None:
     lines = _first_nonempty_lines(text, 1)
     if not lines:
         return None
@@ -405,7 +580,14 @@ def _parse_status_control_header(text: str) -> str | None:
             match = candidate
             break
     if not match:
-        return None
+        return _salvage_control_line(
+            text,
+            salvage,
+            "status",
+            _STATUS_LABEL_LINE_RE,
+            _STATUS_LEGAL_VALUES,
+            _STATUS_VALUE_DESCRIPTIONS,
+        )
     value = match.group(1).lower()
     if value in {"complete", "完成", "завершено", "выполнено"}:
         return "complete"
@@ -414,7 +596,9 @@ def _parse_status_control_header(text: str) -> str | None:
     return "incomplete"
 
 
-def _parse_integrity_control_header(text: str) -> str | None:
+def _parse_integrity_control_header(
+    text: str, salvage: _ControlSalvage | None = None
+) -> str | None:
     lines = _first_nonempty_lines(text, 2)
     if len(lines) < 2:
         return None
@@ -425,7 +609,14 @@ def _parse_integrity_control_header(text: str) -> str | None:
             match = candidate
             break
     if not match:
-        return None
+        return _salvage_control_line(
+            text,
+            salvage,
+            "integrity",
+            _INTEGRITY_LABEL_LINE_RE,
+            _INTEGRITY_LEGAL_VALUES,
+            _INTEGRITY_VALUE_DESCRIPTIONS,
+        )
     value = match.group(1).lower()
     ru = {
         "чисто": "clean",
@@ -440,7 +631,9 @@ def _parse_integrity_control_header(text: str) -> str | None:
     return ru.get(value, value)
 
 
-def _parse_contract_audit_control_header(text: str) -> str | None:
+def _parse_contract_audit_control_header(
+    text: str, salvage: _ControlSalvage | None = None
+) -> str | None:
     lines = _first_nonempty_lines(text, 3)
     if len(lines) < 3:
         return None
@@ -451,7 +644,14 @@ def _parse_contract_audit_control_header(text: str) -> str | None:
             match = candidate
             break
     if not match:
-        return None
+        return _salvage_control_line(
+            text,
+            salvage,
+            "contract_audit",
+            _CONTRACT_AUDIT_LABEL_LINE_RE,
+            _CONTRACT_AUDIT_LEGAL_VALUES,
+            _CONTRACT_AUDIT_VALUE_DESCRIPTIONS,
+        )
     value = match.group(1).lower().replace("-", "_").replace(" ", "_")
     if value in {"aligned", "对齐", "согласован", "выровнен", "выровнено", "соответствует"}:
         return "aligned"
@@ -462,11 +662,13 @@ def _parse_contract_audit_control_header(text: str) -> str | None:
     return "unknown"
 
 
-def _has_valid_control_header(text: str) -> bool:
+def _has_valid_control_header(
+    text: str, salvage: _ControlSalvage | None = None
+) -> bool:
     return (
-        _parse_status_control_header(text) is not None
-        and _parse_integrity_control_header(text) is not None
-        and _parse_contract_audit_control_header(text) is not None
+        _parse_status_control_header(text, salvage) is not None
+        and _parse_integrity_control_header(text, salvage) is not None
+        and _parse_contract_audit_control_header(text, salvage) is not None
     )
 
 
@@ -569,8 +771,10 @@ def extract_action_guidance(text: str, *, max_chars: int = ACTION_GUIDANCE_CHARS
     return ""
 
 
-def infer_integrity_findings(text: str) -> tuple[str, list[dict[str, Any]]]:
-    integrity_status = _parse_integrity_control_header(text)
+def infer_integrity_findings(
+    text: str, salvage: _ControlSalvage | None = None
+) -> tuple[str, list[dict[str, Any]]]:
+    integrity_status = _parse_integrity_control_header(text, salvage)
     lines = _first_nonempty_lines(text, 2)
     evidence = lines[1] if len(lines) >= 2 else "missing integrity control header"
     if integrity_status == "clean":

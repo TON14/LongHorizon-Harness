@@ -20,6 +20,15 @@ _ROLE_NAMES = {
     "final_response",
 }
 _TIMEOUT_NAMES = {"manager", "gui_executor", "cli_executor", "auditor"}
+_SEMIF_KEYS = {
+    "enabled",
+    "command",
+    "model",
+    "revision",
+    "gguf",
+    "threshold",
+    "timeout_seconds",
+}
 _RUN_KEYS = {
     "agent",
     "model",
@@ -44,6 +53,7 @@ _RUN_KEYS = {
     "dashboard_port",
     "roles",
     "timeouts",
+    "semif",
 }
 _STRING_KEYS = {
     "model",
@@ -288,6 +298,42 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
         raise ProjectConfigError(f"unknown timeout role(s): {_names(unknown_timeouts)}")
     for role, value in timeouts.items():
         defaults[f"{role}_timeout"] = _positive_int(value, f"run.timeouts.{role}")
+
+    # Semantic salvage stays off unless the operator opts in; the semif_*
+    # keys exist only when the table was written, so an absent section
+    # leaves the defaults byte-for-byte identical to a config without it.
+    semif = run.get("semif", {})
+    if not isinstance(semif, dict):
+        raise ProjectConfigError("[run.semif] must be a TOML table")
+    unknown_semif = set(semif) - _SEMIF_KEYS
+    if unknown_semif:
+        raise ProjectConfigError(f"unknown [run.semif] key(s): {_names(unknown_semif)}")
+    if "enabled" in semif:
+        defaults["semif_enabled"] = _boolean(semif["enabled"], "run.semif.enabled")
+    for key in ("command", "model", "revision", "gguf"):
+        if key in semif:
+            defaults[f"semif_{key}"] = _string(semif[key], f"run.semif.{key}")
+    if "threshold" in semif:
+        defaults["semif_threshold"] = _threshold(
+            semif["threshold"], "run.semif.threshold"
+        )
+    if "timeout_seconds" in semif:
+        defaults["semif_timeout_seconds"] = _positive_int(
+            semif["timeout_seconds"], "run.semif.timeout_seconds"
+        )
+    if defaults.get("semif_enabled"):
+        missing = [
+            key for key in ("command", "model", "revision")
+            if f"semif_{key}" not in defaults
+        ]
+        if missing:
+            # Salvage silently doing nothing is the one failure an operator
+            # cannot see from the run output, so an enabled-but-unusable
+            # section must refuse to load rather than quietly disable.
+            raise ProjectConfigError(
+                "run.semif.enabled = true requires "
+                + ", ".join(f"run.semif.{key}" for key in missing)
+            )
     return defaults
 
 
@@ -331,6 +377,18 @@ def _boolean(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise ProjectConfigError(f"{name} must be true or false")
     return value
+
+
+def _threshold(value: Any, name: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 < value <= 1
+    ):
+        raise ProjectConfigError(
+            f"{name} must be a number greater than 0 and at most 1"
+        )
+    return float(value)
 
 
 def _names(values: set[str]) -> str:

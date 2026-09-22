@@ -87,6 +87,10 @@ class AuditReport:
     contract_audit_status: Literal["aligned", "unknown", "needs_revision", "invalid"] = "unknown"
     integrity_findings: list[dict[str, Any]] = field(default_factory=list)
     artifact_actions: list[dict[str, Any]] = field(default_factory=list)
+    # Provenance for control values recovered by semantic salvage: one entry
+    # per salvaged control line (control, value, per-option probabilities).
+    # Empty unless [run.semif] salvaged a line the regexes missed.
+    control_salvage: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -178,6 +182,11 @@ def audit_report_from_dict(data: dict[str, Any]) -> AuditReport:
         artifact_actions=[
             {str(key): _coerce_record_value(value) for key, value in item.items()}
             for item in data.get("artifact_actions", [])
+            if isinstance(item, dict)
+        ],
+        control_salvage=[
+            {str(key): _coerce_record_value(value) for key, value in item.items()}
+            for item in data.get("control_salvage", [])
             if isinstance(item, dict)
         ],
     )

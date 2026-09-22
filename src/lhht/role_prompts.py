@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .config import load_run_defaults
 from .prompt_texts import (
     AUDITOR_CONTRACT_BACKCHECK,
     CLI_AUDITOR_INSTRUCTIONS,
@@ -13,6 +14,12 @@ from .prompt_texts import (
     MANAGER_INSTRUCTIONS,
     TASK_CONTRACT_RULES,
     USER_CLARIFICATION_NOTE,
+)
+from .semantic_salvage import (
+    DEFAULT_THRESHOLD,
+    SemanticScorer,
+    salvage_control_value,
+    scorer_from_config,
 )
 from .types import ManagedRound, PromptLanguage, RoleNextStep
 
@@ -478,7 +485,91 @@ def format_audit_findings(
     return _clip_preserve("\n\n".join(sections), max_chars)
 
 
-def parse_role_manager_next_step(text: str) -> RoleNextStep:
+# Semantic salvage for manager route lines the string sets missed. Salvage
+# runs only after every string set missed -- a hit returns before the scorer
+# is ever resolved. An optional [run.semif] table supplies the scorer; with
+# the section absent or disabled nothing is constructed and a miss keeps
+# today's MANAGER_NEXT_INVALID.
+_MANAGER_ROUTE_LABEL_LINE_RE = re.compile(
+    r"(?i)^\s*[`*]*\s*(?:下一步|next|следующий\s+шаг|далее)\s*[:：]"
+)
+_MANAGER_ROUTE_LEGAL_VALUES = [
+    MANAGER_NEXT_GUI,
+    MANAGER_NEXT_CLI,
+    MANAGER_NEXT_ASK,
+    MANAGER_NEXT_DONE,
+    MANAGER_NEXT_BLOCKED,
+]
+_MANAGER_ROUTE_VALUE_DESCRIPTIONS = {
+    MANAGER_NEXT_GUI: "Route the next subtask to a GUI/visual executor (GUI任务).",
+    MANAGER_NEXT_CLI: "Route the next subtask to a CLI/non-GUI executor (CLI任务).",
+    MANAGER_NEXT_ASK: "Ask the user a clarifying question (请示用户, спросить пользователя).",
+    MANAGER_NEXT_DONE: "The managed task is complete; finish the run (完成, готово).",
+    MANAGER_NEXT_BLOCKED: "Progress is blocked; report the blocker (阻塞, блок).",
+}
+_ROUTE_SALVAGE_SETTINGS: dict[str, tuple[SemanticScorer | None, float]] = {}
+
+
+def _route_scorer_settings() -> tuple[SemanticScorer | None, float]:
+    """Resolve the optional [run.semif] scorer and threshold once per process."""
+    if "settings" not in _ROUTE_SALVAGE_SETTINGS:
+        try:
+            defaults = load_run_defaults()
+            threshold = defaults.get("semif_threshold", DEFAULT_THRESHOLD)
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+                threshold = DEFAULT_THRESHOLD
+            _ROUTE_SALVAGE_SETTINGS["settings"] = (
+                scorer_from_config(defaults),
+                float(threshold),
+            )
+        except Exception:
+            # A missing or broken config must degrade to no salvage, never
+            # crash route parsing.
+            _ROUTE_SALVAGE_SETTINGS["settings"] = (None, DEFAULT_THRESHOLD)
+    return _ROUTE_SALVAGE_SETTINGS["settings"]
+
+
+def _salvage_manager_route(
+    text: str,
+    scorer: SemanticScorer | None,
+    threshold: float | None,
+) -> RoleNextStep | None:
+    """Recover a route for a label line the string sets missed."""
+    line = next(
+        (
+            stripped
+            for stripped in (raw.strip() for raw in str(text or "").splitlines())
+            if _MANAGER_ROUTE_LABEL_LINE_RE.match(stripped)
+        ),
+        None,
+    )
+    if line is None:
+        # No line even carries a route label; there is nothing to re-judge.
+        return None
+    if scorer is None:
+        scorer, configured_threshold = _route_scorer_settings()
+        if threshold is None:
+            threshold = configured_threshold
+    if threshold is None:
+        # An explicitly passed scorer keeps the default threshold instead of
+        # reading the project config.
+        threshold = DEFAULT_THRESHOLD
+    result = salvage_control_value(
+        line,
+        _MANAGER_ROUTE_LEGAL_VALUES,
+        _MANAGER_ROUTE_VALUE_DESCRIPTIONS,
+        scorer,
+        threshold,
+    )
+    return result.value if result is not None else None
+
+
+def parse_role_manager_next_step(
+    text: str,
+    *,
+    scorer: SemanticScorer | None = None,
+    threshold: float | None = None,
+) -> RoleNextStep:
     for line in str(text or "").splitlines():
         # `*` covers bold; the backtick covers code spans. The prompt itself
         # displays every route inside backticks ("exactly one route:
@@ -505,6 +596,11 @@ def parse_role_manager_next_step(text: str) -> RoleNextStep:
             return MANAGER_NEXT_DONE
         if normalized in {"下一步:阻塞", "下一步：阻塞", "next:blocked", "следующийшаг:blocked", "далее:blocked", "следующийшаг:блок", "далее:блок"}:
             return MANAGER_NEXT_BLOCKED
+    # Miss path only: every string set above missed, so try semantic salvage
+    # before falling back to the invalid route.
+    salvaged = _salvage_manager_route(text, scorer, threshold)
+    if salvaged is not None:
+        return salvaged
     return MANAGER_NEXT_INVALID
 
 
