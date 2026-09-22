@@ -30,6 +30,8 @@ _SEMIF_KEYS = {
     "timeout_seconds",
     "auditor_fast",
     "auditor_fast_threshold",
+    "effort_routing",
+    "effort_threshold",
 }
 _RUN_KEYS = {
     "agent",
@@ -334,6 +336,17 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
     if "auditor_fast_threshold" in semif:
         defaults["semif_auditor_fast_threshold"] = _threshold(
             semif["auditor_fast_threshold"], "run.semif.auditor_fast_threshold"
+        )
+    # Effort routing is the same kind of optimization: picking among executor
+    # adapters can wait for a usable scorer, so it too stays silently off
+    # when the scorer is not configured rather than refusing to load.
+    if "effort_routing" in semif:
+        defaults["semif_effort_routing"] = _boolean(
+            semif["effort_routing"], "run.semif.effort_routing"
+        )
+    if "effort_threshold" in semif:
+        defaults["semif_effort_threshold"] = _threshold(
+            semif["effort_threshold"], "run.semif.effort_threshold"
         )
     if defaults.get("semif_enabled"):
         missing = [

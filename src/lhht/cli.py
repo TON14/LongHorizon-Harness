@@ -15,7 +15,7 @@ import traceback
 import uuid
 import webbrowser
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Iterable
+from typing import TYPE_CHECKING, Awaitable, Callable, Iterable
 
 from . import HOMEPAGE, ISSUES_URL, __version__
 from .config import (
@@ -24,6 +24,7 @@ from .config import (
     create_project_config,
     load_run_defaults,
 )
+from .semantic_salvage import scorer_from_config
 from .types import (
     DEFAULT_CLAUDE_MODEL,
     DEFAULT_CODEX_MODEL,
@@ -1846,14 +1847,25 @@ def _run_command(args: argparse.Namespace) -> int:
                 plugin_mcp_cache[agent_name] = config or None
         return plugin_mcp_cache[agent_name]
 
-    def build_role_agent(role: str, *, permission_role: str | None = None):
+    def build_role_agent(
+        role: str,
+        *,
+        permission_role: str | None = None,
+        reasoning_effort: str | None = None,
+    ):
         # Agent and model resolve independently down the same fallback chain, so
         # mixing backends never sends one backend the other's model id. The
         # permission role is part of the cache key: two Claude roles using the
-        # same model must never share a differently privileged adapter.
+        # same model must never share a differently privileged adapter. An
+        # explicit reasoning_effort (the routing variants) replaces the
+        # resolved one and lands in the same cache key.
         name = _resolve_role_option(args, role, "agent")
         model = _resolve_role_model(args, role)
-        effort = _resolve_role_reasoning_effort(args, role, name)
+        effort = (
+            reasoning_effort
+            if reasoning_effort is not None
+            else _resolve_role_reasoning_effort(args, role, name)
+        )
         effective_permission_role = permission_role or role
         key = (effective_permission_role, name, model, effort)
         if key not in agent_cache:
@@ -1906,6 +1918,13 @@ def _run_command(args: argparse.Namespace) -> int:
             dashboard_handle.shutdown()
         return 1
 
+    # Scorer-routed cli-executor effort variants ([run.semif] effort_routing):
+    # built only when the flag is on and the scorer is usable, so every other
+    # run constructs exactly the adapters it always did.
+    cli_executor_effort_agents, cli_executor_default_effort = (
+        _cli_executor_effort_variants(run_defaults, args, build_role_agent)
+    )
+
     from .manager import run
 
     report: dict[str, object] | None = None
@@ -1923,6 +1942,8 @@ def _run_command(args: argparse.Namespace) -> int:
                     progress=_print_progress,
                     resume=bool(getattr(args, "resume", False)),
                     guard_exclude_paths=guard_exclude_paths,
+                    cli_executor_effort_agents=cli_executor_effort_agents,
+                    cli_executor_default_effort=cli_executor_default_effort,
                     **role_agents,
                 ),
                 run_dir=run_dir,
@@ -2205,6 +2226,53 @@ def _resolve_role_reasoning_effort(
             return None
         current = _ROLE_PARENTS[current]
     return getattr(args, "reasoning_effort", None)
+
+
+def _cli_executor_effort_variants(
+    run_defaults: dict[str, object],
+    args: argparse.Namespace,
+    build_role_agent: Callable[..., object],
+) -> tuple[dict[str, object] | None, str]:
+    """Build the low/high/max cli-executor variants effort routing needs.
+
+    Returns ``(variants, default_effort)`` for a fully enabled routing setup,
+    or ``(None, "")`` -- with no adapter constructed and no scorer built --
+    whenever ``[run.semif]`` leaves routing off: flag absent/false, scorer
+    not configured, the configured cli-executor effort not rankable, or a
+    backend that rejects one of the variant levels. The configured-effort
+    adapter itself is never rebuilt: ``build_role_agent`` caches by effort,
+    so the matching variant IS the default adapter.
+    """
+    if not run_defaults.get("semif_effort_routing"):
+        return None, ""
+    if scorer_from_config(run_defaults) is None:
+        return None, ""
+    from .manager import EFFORT_RANKS, EFFORT_VARIANTS
+
+    agent_name = _resolve_role_option(args, "cli_executor", "agent")
+    default_effort = (
+        _resolve_role_reasoning_effort(args, "cli_executor", agent_name) or ""
+    )
+    if default_effort not in EFFORT_RANKS:
+        print(
+            "Warning: effort routing needs a rankable cli-executor reasoning "
+            "effort; routing stays off",
+            file=sys.stderr,
+        )
+        return None, ""
+    try:
+        variants = {
+            level: build_role_agent("cli_executor", reasoning_effort=level)
+            for level in EFFORT_VARIANTS
+        }
+    except Exception as exc:
+        print(
+            f"Warning: cli-executor effort variants unavailable ({exc}); "
+            "routing stays off",
+            file=sys.stderr,
+        )
+        return None, ""
+    return variants, default_effort
 
 
 def _public_role_configs_from_args(

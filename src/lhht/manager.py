@@ -13,7 +13,7 @@ import time
 from dataclasses import asdict, dataclass, field
 import traceback
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Mapping
 
 from .adapters.base import AgentAdapter
 from .agent_logs import (
@@ -76,6 +76,12 @@ from .auditor_fast import (
     resolve_fast_gate,
     run_gate,
 )
+from .config import load_run_defaults
+from .semantic_salvage import (
+    SemanticScorer,
+    _valid_probabilities,
+    scorer_from_config,
+)
 
 IS_WINDOWS = sys.platform == "win32"
 ROLE_VARIANT = "lhht_role_managed"
@@ -84,6 +90,47 @@ _MAX_SAVED_TRAJECTORY_BYTES = 16 * 1024 * 1024
 _MAX_FAILURE_REPORT_BYTES = 1 * 1024 * 1024
 _MAX_FAILURE_EVENTS_BYTES = 4 * 1024 * 1024
 _MAX_FAILURE_EVENT_RECORDS = 50_000
+
+# Effort routing ([run.semif] effort_routing): the scorer classifies each cli
+# round's plan as mechanical / standard / deep and binds one of three
+# pre-built executor adapters (low / high / max) around the configured
+# default effort. Ranks cover the agent registry's declared tiers so the
+# escalation rule can compare a routed variant against the default.
+DEFAULT_EFFORT_THRESHOLD = 0.9
+EFFORT_VARIANTS = ("low", "high", "max")
+EFFORT_RANKS = {
+    "minimal": 0,
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "xhigh": 4,
+    "max": 5,
+}
+_EFFORT_QUESTION = "How much reasoning depth does this executor subtask need?"
+_EFFORT_OPTIONS = (
+    {
+        "id": "mechanical",
+        "description": (
+            "The subtask is mechanical: precise instructions, routine edits, "
+            "running commands or checks, little ambiguity to reason through."
+        ),
+    },
+    {
+        "id": "standard",
+        "description": (
+            "The subtask needs standard engineering depth: some design "
+            "judgment, debugging, or coordinated changes across a few files."
+        ),
+    },
+    {
+        "id": "deep",
+        "description": (
+            "The subtask needs deep reasoning: architectural decisions, subtle "
+            "bugs, unfamiliar code, or security and correctness analysis where "
+            "a wrong shortcut is costly."
+        ),
+    },
+)
 
 
 def _invalid_completion_feedback(language: str) -> str:
@@ -185,6 +232,8 @@ async def _run_impl(
     manager_agent: AgentAdapter | None = None,
     gui_executor_agent: AgentAdapter | None = None,
     cli_executor_agent: AgentAdapter | None = None,
+    cli_executor_effort_agents: Mapping[str, AgentAdapter] | None = None,
+    cli_executor_default_effort: str = "",
     gui_auditor_agent: AgentAdapter | None = None,
     cli_auditor_agent: AgentAdapter | None = None,
     auditor_format_repair_agent: AgentAdapter | None = None,
@@ -274,6 +323,16 @@ async def _run_impl(
     # scorer configured, or any resolution failure there is no scorer and the
     # loop below stays byte-for-byte identical to a run without the gate.
     fast_gate_scorer, fast_gate_threshold = resolve_fast_gate()
+
+    # Effort routing for the cli executor, resolved the same way: the variants
+    # arrive only when the caller could build them, and the router still
+    # requires the config flag plus a usable scorer before anything changes.
+    effort_router = resolve_effort_router(
+        cli_executor_effort_agents,
+        cli_executor_default_effort,
+        language=config.prompt_language,
+    )
+    effort_memos: dict[int, tuple[str | None, dict[str, Any]]] = {}
 
     await _ensure_remote_layout(env, config)
 
@@ -642,12 +701,17 @@ async def _run_impl(
                 break
             continue
 
-        executor_agent, executor_budget = _executor_binding(
+        executor_agent, executor_budget, effort_routing = _executor_binding(
             next_step=next_step,
             gui_executor_agent=gui_executor_agent,
             cli_executor_agent=cli_executor_agent,
             gui_executor_budget=gui_executor_budget,
             cli_executor_budget=cli_executor_budget,
+            effort_router=effort_router,
+            plan_text=plan_text,
+            round_index=round_index,
+            rounds=rounds,
+            effort_memos=effort_memos,
         )
         auditor_for_step = gui_auditor_agent if next_step == MANAGER_NEXT_GUI else cli_auditor_agent
         related_auditor_reports = format_related_auditor_reports(
@@ -714,7 +778,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                executor_status=_episode_status(executor_result),
+                executor_status=_routed_executor_status(executor_result, effort_routing),
             )
             rounds.append(record)
             await _record_round(env, config, role_dir, events_path, record)
@@ -742,8 +806,8 @@ async def _run_impl(
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
                 manager_status=_episode_status(manager_result),
-                executor_status=_failed_episode_status(
-                    executor_result, executor_failure.user_message
+                executor_status=_routed_executor_status(
+                    executor_result, effort_routing, executor_failure.user_message
                 ),
             )
             _write_local(round_dir / "harness_feedback.txt", executor_failure.user_message)
@@ -840,7 +904,7 @@ async def _run_impl(
                     task_state=current_task_state,
                     task_contract=current_task_contract,
                     related_report_refs=related_report_refs,
-                    executor_status=_episode_status(executor_result),
+                    executor_status=_routed_executor_status(executor_result, effort_routing),
                     auditor_status={
                         "status": "skipped_by_fast_gate",
                         "audit_status": "incomplete",
@@ -917,7 +981,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                executor_status=_episode_status(executor_result),
+                executor_status=_routed_executor_status(executor_result, effort_routing),
                 auditor_status=_episode_status(auditor_result),
             )
             rounds.append(record)
@@ -946,7 +1010,7 @@ async def _run_impl(
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
                 manager_status=_episode_status(manager_result),
-                executor_status=_episode_status(executor_result),
+                executor_status=_routed_executor_status(executor_result, effort_routing),
                 auditor_status=_failed_episode_status(
                     auditor_result, auditor_failure.user_message
                 ),
@@ -1008,7 +1072,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                executor_status=_episode_status(executor_result),
+                executor_status=_routed_executor_status(executor_result, effort_routing),
                 auditor_status=auditor_status,
             )
             rounds.append(record)
@@ -1042,7 +1106,7 @@ async def _run_impl(
             task_state=current_task_state,
             task_contract=current_task_contract,
             related_report_refs=related_report_refs,
-            executor_status=_episode_status(executor_result),
+            executor_status=_routed_executor_status(executor_result, effort_routing),
             auditor_status=auditor_status,
         )
         rounds.append(record)
@@ -1308,10 +1372,194 @@ def _executor_binding(
     cli_executor_agent: AgentAdapter,
     gui_executor_budget: EpisodeBudget,
     cli_executor_budget: EpisodeBudget,
-) -> tuple[AgentAdapter, EpisodeBudget]:
+    effort_router: _EffortRouter | None = None,
+    plan_text: str = "",
+    round_index: int = 0,
+    rounds: list[ManagedRound] | None = None,
+    effort_memos: dict[int, tuple[str | None, dict[str, Any]]] | None = None,
+) -> tuple[AgentAdapter, EpisodeBudget, dict[str, Any]]:
     if next_step == MANAGER_NEXT_GUI:
-        return gui_executor_agent, gui_executor_budget
-    return cli_executor_agent, cli_executor_budget
+        # GUI rounds are never effort-routed; the router only ever picks
+        # among the cli-executor variants.
+        return gui_executor_agent, gui_executor_budget, {}
+    agent: AgentAdapter = cli_executor_agent
+    routing: dict[str, Any] = {}
+    if effort_router is not None:
+        level, routing = _route_effort(
+            effort_router,
+            plan_text=plan_text,
+            round_index=round_index,
+            rounds=rounds or [],
+            memo=effort_memos if effort_memos is not None else {},
+        )
+        if level is not None:
+            agent = effort_router.variants[level]
+    return agent, cli_executor_budget, routing
+
+
+@dataclass(frozen=True)
+class _EffortRouter:
+    """Run-scoped effort-routing state: scorer, threshold, variants, default.
+
+    Built once per run only when ``[run.semif]`` enables routing and the
+    scorer is fully configured; ``None`` everywhere else keeps the loop
+    byte-for-byte identical to a run without the feature.
+    """
+
+    scorer: SemanticScorer
+    threshold: float
+    variants: Mapping[str, AgentAdapter]
+    default_effort: str
+    language: str = "en"
+
+
+def effort_router_from_defaults(
+    defaults: dict[str, Any],
+    variants: Mapping[str, AgentAdapter] | None,
+    default_effort: str,
+    *,
+    language: str = "en",
+) -> _EffortRouter | None:
+    """Resolve the router an optional ``[run.semif]`` table configures.
+
+    Like the auditor-fast gate, routing is an optimization: an absent or
+    false flag, missing variants or default effort, or an unusable scorer
+    all silently keep today's single-effort binding.
+    """
+    if not variants or not default_effort or not defaults.get("semif_effort_routing"):
+        return None
+    scorer = scorer_from_config(defaults)
+    if scorer is None:
+        return None
+    threshold = defaults.get("semif_effort_threshold", DEFAULT_EFFORT_THRESHOLD)
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        threshold = DEFAULT_EFFORT_THRESHOLD
+    return _EffortRouter(
+        scorer,
+        float(threshold),
+        dict(variants),
+        default_effort,
+        language=language,
+    )
+
+
+def resolve_effort_router(
+    variants: Mapping[str, AgentAdapter] | None,
+    default_effort: str,
+    *,
+    language: str = "en",
+) -> _EffortRouter | None:
+    """Resolve the router once per run from the project config; failure = off."""
+    try:
+        return effort_router_from_defaults(
+            load_run_defaults(), variants, default_effort, language=language
+        )
+    except Exception:
+        # A missing or broken config must disable routing, never crash a run.
+        return None
+
+
+def _route_effort(
+    router: _EffortRouter,
+    *,
+    plan_text: str,
+    round_index: int,
+    rounds: list[ManagedRound],
+    memo: dict[int, tuple[str | None, dict[str, Any]]],
+) -> tuple[str | None, dict[str, Any]]:
+    """Classify one round's plan and pick its cli-executor effort variant.
+
+    Returns the chosen variant level (``None`` = keep the default adapter)
+    together with the payload recorded on the round. The top option must
+    reach the threshold to leave the default; scorer errors, timeouts, and
+    malformed answers all degrade to the default. Decisions are memoized
+    per round, so one round classifies its plan exactly once.
+    """
+    memoized = memo.get(round_index)
+    if memoized is not None:
+        return memoized
+    payload: dict[str, Any] = {
+        "default_effort": router.default_effort,
+        "variant": router.default_effort,
+        "used_default": True,
+        "probabilities": None,
+        "classified": None,
+        "escalated": False,
+        "skipped": None,
+    }
+    level: str | None = None
+    try:
+        probabilities = router.scorer.score(
+            plan_text, _EFFORT_QUESTION, list(_EFFORT_OPTIONS)
+        )
+    except Exception:
+        probabilities = None
+    if not _valid_probabilities(probabilities, len(_EFFORT_OPTIONS)):
+        payload["skipped"] = "scorer_unavailable"
+    else:
+        values = [float(value) for value in probabilities]
+        payload["probabilities"] = {
+            option["id"]: value for option, value in zip(_EFFORT_OPTIONS, values)
+        }
+        # Ties go to the earliest option, mirroring salvage semantics.
+        top = max(range(len(values)), key=values.__getitem__)
+        payload["classified"] = _EFFORT_OPTIONS[top]["id"]
+        if values[top] < router.threshold:
+            payload["skipped"] = "below_threshold"
+        else:
+            chosen = EFFORT_VARIANTS[top]
+            if _escalate_effort(router, rounds) and _ranked_below(
+                chosen, router.default_effort
+            ):
+                # Self-correction: the last downgraded round was not audited
+                # clean-complete, so this round runs at least the default.
+                payload["escalated"] = True
+                payload["skipped"] = "escalated_to_default"
+            else:
+                level = chosen
+                payload["variant"] = chosen
+                payload["used_default"] = chosen == router.default_effort
+    memo[round_index] = (level, payload)
+    return level, payload
+
+
+def _escalate_effort(router: _EffortRouter, rounds: list[ManagedRound]) -> bool:
+    """True when the last routed round downgraded and was not audited clean.
+
+    Walks back to the most recent round that ran a routed executor; manager-
+    only rounds in between never redeem a downgrade. An absent, unparsed, or
+    non-clean-complete audit counts as not passed, so failed and fast-gate-
+    skipped rounds escalate too.
+    """
+    for item in reversed(rounds):
+        status = item.executor_status if isinstance(item.executor_status, dict) else {}
+        routing = status.get("effort_routing")
+        if not isinstance(routing, dict) or not routing:
+            continue
+        variant = str(routing.get("variant") or "")
+        if routing.get("used_default") or not _ranked_below(
+            variant, router.default_effort
+        ):
+            return False
+        report = parse_audit_report(
+            item.auditor_report, item.round_index, language=router.language
+        )
+        return not (
+            report.status == "complete"
+            and report.integrity_status == "clean"
+            and report.contract_audit_status == "aligned"
+        )
+    return False
+
+
+def _ranked_below(variant: str, default_effort: str) -> bool:
+    variant_rank = EFFORT_RANKS.get(variant)
+    default_rank = EFFORT_RANKS.get(default_effort)
+    return (
+        variant_rank is not None
+        and default_rank is not None
+        and variant_rank < default_rank
+    )
 
 
 @dataclass(frozen=True)
@@ -1994,6 +2242,26 @@ def _failed_episode_status(result: EpisodeResult, user_message: str) -> dict[str
     status = _episode_status(result)
     status["status"] = "timeout" if result.status == "timeout" else "error"
     status["error"] = user_message
+    return status
+
+
+def _routed_executor_status(
+    result: EpisodeResult,
+    routing: dict[str, Any],
+    failure_message: str | None = None,
+) -> dict[str, Any]:
+    """Executor episode status, carrying the round's effort-routing decision.
+
+    The routing payload is attached only when routing actually decided
+    something, so runs with routing off serialize exactly today's status.
+    """
+    status = (
+        _failed_episode_status(result, failure_message)
+        if failure_message is not None
+        else _episode_status(result)
+    )
+    if routing:
+        status["effort_routing"] = routing
     return status
 
 
