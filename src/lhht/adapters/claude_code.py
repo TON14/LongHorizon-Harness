@@ -18,6 +18,7 @@ from .claude_permissions import (
     workspace_snapshot_diff,
 )
 from ..environment.base import Environment
+from ..mcp_policy import effective_mcp_lists, load_mcp_defaults
 from ..provider_errors import GUARD_REJECTION_MESSAGE
 from ..semif_mcp import SERVER_NAME
 from ..types import (
@@ -69,28 +70,6 @@ def _semif_mcp_server(defaults: dict[str, Any]) -> dict[str, Any] | None:
     if command is None:
         return None
     return {SERVER_NAME: {"command": command[0], "args": command[1]}}
-
-
-def _effective_mcp_lists(defaults: dict[str, Any], role: str) -> tuple[list[str], list[str]]:
-    """Per-role (allow, blocked) lists; defaults keep everything visible.
-
-    A role-specific list replaces the global one; ``["*"]`` in ``mcp_allow``
-    means no allow-filtering. Anything else restricts: the role then loads
-    ONLY admitted servers.
-    """
-
-    allow = defaults.get(f"{role}_mcp_allow", defaults.get("mcp_allow", ["*"]))
-    blocked = defaults.get(f"{role}_mcp_blocked", defaults.get("mcp_blocked", []))
-    return list(allow), list(blocked)
-
-
-def _load_mcp_defaults() -> dict[str, Any]:
-    try:
-        from ..config import load_run_defaults
-
-        return load_run_defaults()
-    except Exception:
-        return {}
 
 
 class ClaudeCodeAdapter(CommandAgentAdapter):
@@ -210,8 +189,8 @@ class ClaudeCodeAdapter(CommandAgentAdapter):
         # to parse is always passed through untouched so the CLI reports the
         # broken config instead of lhht silently dropping their servers, and
         # restriction enforcement waits for a fixed file.
-        defaults = _load_mcp_defaults()
-        self.mcp_allow, self.mcp_blocked = _effective_mcp_lists(defaults, role)
+        defaults = load_mcp_defaults()
+        self.mcp_allow, self.mcp_blocked = effective_mcp_lists(defaults, role)
         self.computer_mcp_configured = bool(policy.load_computer_mcp and mcp_config)
         computer_servers = (
             _read_mcp_config_document(mcp_config) if self.computer_mcp_configured else None

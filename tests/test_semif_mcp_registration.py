@@ -161,6 +161,56 @@ def test_zcode_registration_returns_none_when_off(tmp_path, monkeypatch) -> None
     assert _semif_mcp_json(str(tmp_path)) is None
 
 
+def test_zcode_registration_respects_the_block_list(tmp_path, monkeypatch) -> None:
+    _patch_defaults(monkeypatch, {**_ENABLED, "manager_mcp_blocked": [SERVER_NAME]})
+
+    assert _semif_mcp_json(str(tmp_path), role="manager") is None
+    assert _semif_mcp_json(str(tmp_path), role="cli_executor") is not None
+
+
+# --- Codex: mcp_servers config overrides --------------------------------
+
+
+def test_codex_adapter_registers_scorer_as_config_override(tmp_path, monkeypatch) -> None:
+    import tomllib
+
+    from lhht.adapters.codex import CodexAdapter
+
+    _patch_defaults(monkeypatch, _ENABLED)
+    adapter = CodexAdapter(
+        workspace_path=str(tmp_path),
+        prompt_dir=str(tmp_path / "prompts"),
+    )
+
+    argv = adapter.argv
+    overrides = [
+        argv[index + 1] for index, item in enumerate(argv) if item == "-c"
+    ]
+    mcp = [o for o in overrides if o.startswith(f"mcp_servers.{SERVER_NAME}=")]
+    assert mcp, "the scorer server must ride as an mcp_servers override"
+    spec = tomllib.loads("x=" + mcp[0].split("=", 1)[1])["x"]
+    assert spec == {
+        "command": "C:/sidecar/python.exe",
+        "args": ["C:/repo/scripts/semif_mcp.py"],
+    }
+    assert adapter.semif_mcp_configured is True
+
+
+def test_codex_adapter_skips_registration_when_tool_off(tmp_path, monkeypatch) -> None:
+    from lhht.adapters.codex import CodexAdapter
+
+    _patch_defaults(monkeypatch, {"semif_mcp_tool": False})
+    adapter = CodexAdapter(
+        workspace_path=str(tmp_path),
+        prompt_dir=str(tmp_path / "prompts"),
+    )
+
+    assert not [
+        item for item in adapter.argv if str(item).startswith(f"mcp_servers.{SERVER_NAME}")
+    ]
+    assert adapter.semif_mcp_configured is False
+
+
 # --- Per-role mcp_allow / mcp_blocked ------------------------------------
 
 
@@ -281,6 +331,94 @@ def test_config_lists_validate_star_and_types(tmp_path) -> None:
     defaults = load_run_defaults(tmp_path / ".lhht" / "config.toml")
     assert defaults["manager_mcp_allow"] == ["semif-scorer"]
     assert "mcp_allow" not in defaults  # no global list written
+
+
+# --- Shared mcp_allow / mcp_blocked policy --------------------------------
+
+
+def test_policy_lists_default_open_and_role_overrides_global() -> None:
+    from lhht.mcp_policy import (
+        effective_mcp_lists,
+        mcp_admits,
+        mcp_restricted,
+    )
+
+    assert effective_mcp_lists({}, None) == (["*"], [])
+    assert mcp_restricted(["*"], []) is False
+
+    allow, blocked = effective_mcp_lists(
+        {"mcp_blocked": ["gitlab"], "cli_auditor_mcp_allow": [SERVER_NAME]},
+        "cli_auditor",
+    )
+    assert allow == [SERVER_NAME]  # role list replaces the global one
+    assert blocked == ["gitlab"]  # ...per list, independently
+    assert mcp_restricted(allow, blocked) is True
+    assert mcp_admits(allow, blocked, SERVER_NAME) is True
+    assert mcp_admits(allow, blocked, "playwright") is False
+    # The block list wins over the allow list.
+    assert mcp_admits(["*"], [SERVER_NAME], SERVER_NAME) is False
+    assert mcp_admits([SERVER_NAME], [SERVER_NAME], SERVER_NAME) is False
+
+
+def test_codex_blocked_list_removes_the_tool_for_that_role_only(
+    tmp_path, monkeypatch
+) -> None:
+    from lhht.adapters.codex import CodexAdapter
+
+    _patch_defaults(
+        monkeypatch,
+        {**_ENABLED, "cli_executor_mcp_blocked": [SERVER_NAME]},
+    )
+    blocked_adapter = CodexAdapter(
+        workspace_path=str(tmp_path), prompt_dir=str(tmp_path / "p"),
+        role="cli_executor",
+    )
+    other_adapter = CodexAdapter(
+        workspace_path=str(tmp_path), prompt_dir=str(tmp_path / "p2"),
+        role="cli_auditor",
+    )
+
+    assert blocked_adapter.semif_mcp_configured is False
+    assert not [
+        item for item in blocked_adapter.argv
+        if str(item).startswith(f"mcp_servers.{SERVER_NAME}")
+    ]
+    assert other_adapter.semif_mcp_configured is True
+
+
+def test_codex_allow_list_filters_operator_file_servers(tmp_path, monkeypatch) -> None:
+    import tomllib
+
+    from lhht.adapters.codex import CodexAdapter
+
+    operator_config = tmp_path / "operators.toml"
+    operator_config.write_text(
+        "[mcp_servers.gitlab]\n"
+        'command = "gitlab-server"\n'
+        "[mcp_servers.playwright]\n"
+        'command = "playwright-server"\n',
+        encoding="utf-8",
+    )
+    _patch_defaults(
+        monkeypatch,
+        {**_ENABLED, "cli_executor_mcp_allow": ["gitlab", SERVER_NAME]},
+    )
+    adapter = CodexAdapter(
+        workspace_path=str(tmp_path),
+        prompt_dir=str(tmp_path / "p"),
+        mcp_config=str(operator_config),
+        role="cli_executor",
+    )
+
+    mcp_values = [
+        adapter.argv[index + 1]
+        for index, item in enumerate(adapter.argv)
+        if item == "-c" and str(adapter.argv[index + 1]).startswith("mcp_servers.")
+    ]
+    names = sorted(value.split(".", 2)[1].split("=", 1)[0] for value in mcp_values)
+    assert names == ["gitlab", SERVER_NAME]
+    for value in mcp_values:
+        tomllib.loads("x=" + value.split("=", 1)[1])  # every override is valid TOML
 
 
 # --- `lhht init` scaffolds the scorer without turning it on -------------

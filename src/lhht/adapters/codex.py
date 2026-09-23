@@ -7,6 +7,12 @@ import tomllib
 from ..types import DEFAULT_CODEX_MODEL, DEFAULT_TMP_DIR, DEFAULT_WORKSPACE_PATH
 from ..agent_logs import visible_output as extract_codex_visible_output
 from ..agent_registry import normalise_reasoning_effort
+from ..mcp_policy import (
+    effective_mcp_lists,
+    load_mcp_defaults,
+    mcp_admits,
+    mcp_restricted,
+)
 from ..utils.agent_cli import resolve_codex_binary
 from .cli_agent import CommandAgentAdapter
 
@@ -30,6 +36,7 @@ class CodexAdapter(CommandAgentAdapter):
         sandbox_mode: str | None = None,
         hidden_paths: tuple[str, ...] = (),
         reasoning_effort: str | None = None,
+        role: str | None = None,
     ) -> None:
         effort = normalise_reasoning_effort(reasoning_effort)
         env_overrides: dict[str, str] = {}
@@ -67,10 +74,31 @@ class CodexAdapter(CommandAgentAdapter):
         # MCP support is opt-in and uses Codex's own format: a TOML file holding
         # `[mcp_servers.*]` tables, replayed as `-c mcp_servers.<name>=...`
         # overrides because `--profile` only reads files inside $CODEX_HOME.
+        # `codex exec` loads ONLY what arrives this way -- config.toml servers
+        # never reach a headless run (verified live) -- so the per-role
+        # mcp_allow/mcp_blocked lists simply filter what lhht passes: the
+        # operator file's servers plus the scorer tool, ours last so the
+        # harness definition wins a name clash.
         mcp_config = mcp_config or os.getenv("LHHT_CODEX_MCP_CONFIG")
-        if mcp_config:
-            for override in mcp_server_overrides(mcp_config):
-                argv.extend(["-c", override])
+        defaults = load_mcp_defaults()
+        allow, blocked = effective_mcp_lists(defaults, role)
+        operator_tables = mcp_server_tables(mcp_config) if mcp_config else {}
+        servers: dict = dict(operator_tables)
+        self.semif_mcp_configured = False
+        semif_override = _semif_mcp_override(defaults)
+        if semif_override is not None:
+            name, spec = semif_override
+            servers[name] = spec
+        if mcp_restricted(allow, blocked):
+            servers = {
+                name: spec
+                for name, spec in servers.items()
+                if mcp_admits(allow, blocked, name)
+            }
+        if semif_override is not None:
+            self.semif_mcp_configured = semif_override[0] in servers
+        for name, spec in servers.items():
+            argv.extend(["-c", f"mcp_servers.{name}={_toml_inline(spec)}"])
 
         resolved_add_dirs = list(add_dirs or [])
         env_add_dirs = os.getenv("LHHT_CODEX_ADD_DIRS") or os.getenv("LHHT_MCP_ADD_DIRS")
@@ -94,6 +122,22 @@ class CodexAdapter(CommandAgentAdapter):
             visible_output_parser=extract_codex_visible_output,
             hidden_paths=hidden_paths,
         )
+
+
+def _semif_mcp_overrides() -> list[str]:
+    """`-c mcp_servers.*` overrides for the scorer tool, empty when off."""
+
+    try:
+        from ..config import load_run_defaults
+        from ..semif_mcp import SERVER_NAME, semif_mcp_command
+
+        command = semif_mcp_command(load_run_defaults())
+        if command is None:
+            return []
+        spec = {"command": command[0], "args": command[1]}
+        return [f"mcp_servers.{SERVER_NAME}={_toml_inline(spec)}"]
+    except Exception:
+        return []
 
 
 def _config_overrides(*, base_url: str | None, api_key: str | None) -> list[str]:
@@ -122,20 +166,41 @@ def _normalize_base_url(base_url: str | None) -> str:
     return trimmed if trimmed.endswith("/v1") else f"{trimmed}/v1"
 
 
-def mcp_server_overrides(path: str) -> list[str]:
-    """Read `[mcp_servers.*]` tables from a Codex TOML file as `-c` overrides."""
+def _semif_mcp_override(defaults: dict) -> tuple[str, dict] | None:
+    """(name, spec) for the scorer's mcp_servers table, or None when off."""
+
+    from ..semif_mcp import SERVER_NAME, semif_mcp_command
+
+    command = semif_mcp_command(defaults)
+    if command is None:
+        return None
+    return SERVER_NAME, {"command": command[0], "args": command[1]}
+
+
+def mcp_server_tables(path: str) -> dict:
+    """Read `[mcp_servers.*]` tables from a Codex TOML file, name -> spec."""
+
     try:
         with open(path, "rb") as fh:
             data = tomllib.load(fh)
     except (OSError, tomllib.TOMLDecodeError):
-        return []
+        return {}
     servers = data.get("mcp_servers") if isinstance(data, dict) else None
     if not isinstance(servers, dict):
-        return []
-    return [
-        f"mcp_servers.{name}={_toml_inline(spec)}"
+        return {}
+    return {
+        str(name): dict(spec)
         for name, spec in servers.items()
         if isinstance(spec, dict) and spec and str(name).strip()
+    }
+
+
+def mcp_server_overrides(path: str) -> list[str]:
+    """Read `[mcp_servers.*]` tables from a Codex TOML file as `-c` overrides."""
+
+    return [
+        f"mcp_servers.{name}={_toml_inline(spec)}"
+        for name, spec in mcp_server_tables(path).items()
     ]
 
 

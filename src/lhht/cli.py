@@ -2496,6 +2496,7 @@ def _build_agent(
             add_dirs=mcp_add_dirs,
             hidden_paths=hidden_paths,
             reasoning_effort=reasoning_effort,
+            role=role,
         )
         if model is not None:
             kwargs["model"] = model

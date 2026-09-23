@@ -39,22 +39,26 @@ _DESKTOP_CONFIG_PATH = Path.home() / ".zcode" / "v2" / "config.json"
 _DESKTOP_PROVIDER_IDS = ("builtin:zai-coding-plan", "builtin:zai", PROVIDER_ID)
 
 
-def _semif_mcp_json(prompt_dir: str) -> str | None:
+def _semif_mcp_json(prompt_dir: str, role: str | None = None) -> str | None:
     """Register the scorer MCP tool for role sessions when configured.
 
     ZCode's headless app-server does not discover workspace ``.mcp.json``
     (verified empirically); it accepts stdio MCP servers per ``session/create``.
     When ``[run.semif] mcp_tool`` is on with ``mcp_python``/``mcp_script``
     paths, write the server definition once per adapter into the run's prompt
-    directory and hand the runner its path. Any gap or error returns None --
-    sessions simply start without the tool.
+    directory and hand the runner its path. The shared mcp_allow/mcp_blocked
+    lists gate the registration like on every backend. Any gap, block, or
+    error returns None -- sessions simply start without the tool.
     """
     try:
         from ..config import load_run_defaults
+        from ..mcp_policy import effective_mcp_lists, mcp_admits
         from ..semif_mcp import SERVER_NAME, semif_mcp_command
 
-        command = semif_mcp_command(load_run_defaults())
-        if command is None:
+        defaults = load_run_defaults()
+        allow, blocked = effective_mcp_lists(defaults, role)
+        command = semif_mcp_command(defaults)
+        if command is None or not mcp_admits(allow, blocked, SERVER_NAME):
             return None
         servers = [{
             "name": SERVER_NAME,
@@ -186,7 +190,7 @@ class ZCodeAdapter(CommandAgentAdapter):
         ]
         if normalized_effort:
             command += ["--thought-level", normalized_effort]
-        mcp_json_path = _semif_mcp_json(prompt_dir)
+        mcp_json_path = _semif_mcp_json(prompt_dir, role)
         if mcp_json_path:
             command += ["--mcp-json", mcp_json_path]
 
