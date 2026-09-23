@@ -9,7 +9,7 @@
 
 | Компонент | Путь / версия |
 |---|---|
-| Форк lhht (источник правды) | `D:\lhht`, версия **0.3.3** |
+| Форк lhht (источник правды) | ваш локальный чекаут форка, версия **0.3.4** |
 | Установка | `pip install --user .` (из корня форка) |
 | Исполняемый файл | `%USERPROFILE%\AppData\Roaming\Python\Python314\Scripts\lhht.exe` |
 | ZCode CLI (headless runtime) | `%USERPROFILE%\AppData\Local\Programs\ZCode\resources\glm\zcode.cjs`, версия **0.16.9** |
@@ -266,9 +266,10 @@ lhht.exe run --task "Посчитай файлы в текущем катало�
 для быстрых семантических решений. Три части:
 
 1. **Резидентный GPU-сервер** — модель грузится один раз, все параллельные
-   прогоны делят её через шим. Запуск: `scripts\start_semif_server_gpu.bat`
-   (4B, ~8 ГБ VRAM) или `start_semif_server_gpu_2b.bat` (2B, ~4,5 ГБ) или
-   `start_semif_server.bat` (CPU, без GPU). Проверка: `curl 127.0.0.1:8790/health`.
+   прогоны делят её через шим. Запуск: `lhht server start` (GPU/torch по
+   умолчанию; `lhht server start --cpu` для llamacpp, `--model` для 2B —
+   детали: `lhht server start --help`). Диагностика всей цепочки:
+   `lhht server doctor`; проверка живого: `lhht server status`.
    Сервер не поднят → все фичи ниже молча отключаются, прогон идёт как раньше.
 2. **Salvage контрольных строк** (`[run.semif]` в config.toml): незнакомое
    написание ключевого слова (маршрут менеджера, заголовки аудитора) не
@@ -286,9 +287,8 @@ lhht.exe run --task "Посчитай файлы в текущем катало�
 ```toml
 [run.semif]
 enabled = true
-command = "D:\lhht\scripts\semif_shim.bat"
-model = "Qwen/Qwen3.5-4B"
-revision = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+# Резидентный сервер (lhht server start); модель живёт на сервере:
+server = "http://127.0.0.1:8790"
 timeout_seconds = 60
 auditor_fast = true
 auditor_fast_threshold = 0.95

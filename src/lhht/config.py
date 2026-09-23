@@ -22,6 +22,7 @@ _ROLE_NAMES = {
 _TIMEOUT_NAMES = {"manager", "gui_executor", "cli_executor", "auditor"}
 _SEMIF_KEYS = {
     "enabled",
+    "server",
     "command",
     "model",
     "revision",
@@ -206,10 +207,13 @@ auditor = 10800
 #
 # [run.semif]
 # enabled = true
-# # semif-score-compatible CLI (or the lhht shim that forwards to the server):
-# command = "D:/lhht/scripts/semif_shim.bat"
-# model = "Qwen/Qwen3.5-4B"
-# revision = "<exact HF revision of the model>"
+# # The resident scoring server (`lhht server start`); it owns the model:
+# server = "http://127.0.0.1:8790"
+# # CLI alternative: any semif-score compatible executable (spawns per call
+# # and loads the model itself; needs model/revision and maybe gguf):
+# # command = "C:/path/to/semif-score.exe"
+# # model = "Qwen/Qwen3.5-4B"
+# # revision = "<exact HF revision of the model>"
 # # gguf = "D:/path/to/model.gguf"        # llamacpp backend instead of torch
 # threshold = 0.9
 # timeout_seconds = 60
@@ -217,8 +221,8 @@ auditor = 10800
 # # (ZCode through the session protocol, Claude Code through --mcp-config);
 # # no per-project .mcp.json is needed anywhere.
 # mcp_tool = true
-# mcp_python = "D:/semif/.venv/Scripts/python.exe"
-# mcp_script = "D:/lhht/scripts/semif_mcp.py"
+# mcp_python = "C:/path/to/semif-venv/Scripts/python.exe"
+# mcp_script = "C:/path/to/lhht-checkout/scripts/semif_mcp.py"
 # # Fail-only pre-gate that skips the slow auditor on confident passes:
 # auditor_fast = true
 # auditor_fast_threshold = 0.95
@@ -401,7 +405,7 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
         defaults["semif_enabled"] = _boolean(semif["enabled"], "run.semif.enabled")
     if "mcp_tool" in semif:
         defaults["semif_mcp_tool"] = _boolean(semif["mcp_tool"], "run.semif.mcp_tool")
-    for key in ("command", "model", "revision", "gguf", "mcp_python", "mcp_script"):
+    for key in ("server", "command", "model", "revision", "gguf", "mcp_python", "mcp_script"):
         if key in semif:
             defaults[f"semif_{key}"] = _string(semif[key], f"run.semif.{key}")
     if "threshold" in semif:
@@ -476,7 +480,10 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
             semif["report_selection_threshold"],
             "run.semif.report_selection_threshold",
         )
-    if defaults.get("semif_enabled"):
+    if defaults.get("semif_enabled") and not defaults.get("semif_server"):
+        # The CLI path spawns a process that loads the model itself, so it
+        # needs the exact coordinates; the resident-server path does not
+        # (the server already carries its model).
         missing = [
             key for key in ("command", "model", "revision")
             if f"semif_{key}" not in defaults
@@ -486,7 +493,7 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
             # cannot see from the run output, so an enabled-but-unusable
             # section must refuse to load rather than quietly disable.
             raise ProjectConfigError(
-                "run.semif.enabled = true requires "
+                "run.semif.enabled = true requires run.semif.server or "
                 + ", ".join(f"run.semif.{key}" for key in missing)
             )
     return defaults

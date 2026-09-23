@@ -1,0 +1,67 @@
+# lhht project config — ZCode backend (GLM models on the Z.ai coding plan).
+# Copy to <project>/.lhht/config.toml, adjust the two machine-specific
+# semif paths at the bottom, then run `lhht doctor` from the project dir.
+# Full operator guide for this backend: ZCODE-RUN-GUIDE.md.
+
+[run]
+agent = "zcode"
+model = "glm-5.3"
+env = "local"
+runs_root = "./.lhht/runs"
+prompt_language = "en"
+# Volatile directories the auditor's snapshot guard should not watch
+# (build outputs, logs). Paths are relative to the workspace.
+guard_exclude_paths = []
+# Real episodes run 10-40+ minutes; the default rounds cap cuts long work.
+max_rounds = 40
+dashboard = false
+
+[run.timeouts]
+manager = 10800
+gui_executor = 10800
+cli_executor = 10800
+auditor = 10800
+
+# Battle-tested role split: cheap planner, working-grade executor, max auditor.
+# Valid ZCode efforts: low, high, max.
+[run.roles.manager]
+reasoning_effort = "low"
+[run.roles.executor]
+reasoning_effort = "high"
+[run.roles.auditor]
+reasoning_effort = "max"
+
+# Semantic scorer (SemIf sidecar). Every feature silently degrades to plain
+# harness behavior while the resident server is down. Start it once per
+# machine with `lhht server start` (GPU) and check the whole chain with
+# `lhht server doctor`. Measure what it gave a run: `lhht scorer-stats <run-dir>`.
+[run.semif]
+enabled = true
+# semif-score-compatible CLI — the lhht shim forwards to the resident server:
+# The resident scoring server, started once per machine (`lhht server start`):
+server = "http://127.0.0.1:8790"
+# CLI alternative: any semif-score compatible executable, spawned per call
+# with its own model load (needs model/revision/gguf alongside):
+# command = "C:/path/to/semif-score.exe"
+# model = "Qwen/Qwen3.5-4B"
+# revision = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+timeout_seconds = 60
+# Control-line salvage threshold (calibrated 309/309, ECE 0.05):
+threshold = 0.9
+# Fail-only pre-gate that skips the slow auditor on confident passes:
+auditor_fast = true
+auditor_fast_threshold = 0.95
+# Advisory second opinion recorded next to auditor verdicts:
+cross_check = true
+# Flags the manager re-planning the same subtask round after round:
+round_dedup = true
+# Binds executor effort (low/high/max) to the scorer's task classification:
+effort_routing = true
+# Keeps round prompts to the k most relevant past audit reports:
+report_selection = true
+report_selection_k = 3
+# In-role `score` MCP tool: the adapter registers it via the session
+# protocol; no per-project .mcp.json is needed anywhere.
+mcp_tool = true
+mcp_python = "C:/path/to/semif-venv/Scripts/python.exe"            # machine-specific
+mcp_script = "C:/path/to/lhht-checkout/scripts/semif_mcp.py"  # machine-specific

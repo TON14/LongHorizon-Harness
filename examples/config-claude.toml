@@ -1,0 +1,66 @@
+# lhht project config — Claude Code backend.
+# Copy to <project>/.lhht/config.toml and adjust the machine-specific semif
+# paths at the bottom. The claude CLI must be logged in (run `claude` once,
+# interactively); verify with `lhht doctor` from the project dir.
+
+[run]
+agent = "claude_code"
+model = "claude-opus-5-5"
+# Valid claude efforts: low, medium, high, xhigh, max (the interactive
+# picker's ultracode/auto are not offered: auto is rejected by the flag,
+# ultracode is not advertised by --help).
+reasoning_effort = "high"
+env = "local"
+runs_root = "./.lhht/runs"
+prompt_language = "en"
+guard_exclude_paths = []
+max_rounds = 40
+dashboard = false
+
+[run.timeouts]
+manager = 10800
+gui_executor = 10800
+cli_executor = 10800
+auditor = 10800
+
+[run.roles.manager]
+reasoning_effort = "low"
+[run.roles.executor]
+reasoning_effort = "high"
+[run.roles.auditor]
+reasoning_effort = "max"
+
+# Per-role MCP visibility. Defaults: everything allowed, nothing blocked —
+# claude discovers your account servers itself. Server names are the middle
+# segment of a tool id (mcp__<server>__<tool>). The moment a role's lists
+# restrict anything, that role loads ONLY admitted servers. The same lists
+# work on the zcode and codex backends.
+# mcp_blocked = ["playwright"]                 # every role
+# [run.roles.manager]
+# mcp_allow = ["semif-scorer"]                 # planner: read-only scorer only
+# [run.roles.cli_auditor]
+# mcp_blocked = ["gitlab", "mcp-jira"]
+
+# Semantic scorer — see config-zcode.toml for per-key commentary.
+[run.semif]
+enabled = true
+# The resident scoring server, started once per machine (`lhht server start`):
+server = "http://127.0.0.1:8790"
+# CLI alternative: any semif-score compatible executable, spawned per call
+# with its own model load (needs model/revision/gguf alongside):
+# command = "C:/path/to/semif-score.exe"
+# model = "Qwen/Qwen3.5-4B"
+# revision = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+timeout_seconds = 60
+threshold = 0.9
+auditor_fast = true
+auditor_fast_threshold = 0.95
+cross_check = true
+round_dedup = true
+effort_routing = true
+report_selection = true
+report_selection_k = 3
+# The adapter registers the tool via --mcp-config in every role session.
+mcp_tool = true
+mcp_python = "C:/path/to/semif-venv/Scripts/python.exe"            # machine-specific
+mcp_script = "C:/path/to/lhht-checkout/scripts/semif_mcp.py"  # machine-specific

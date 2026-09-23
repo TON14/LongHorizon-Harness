@@ -1,0 +1,61 @@
+# lhht project config — Codex backend (OpenAI).
+# Copy to <project>/.lhht/config.toml and adjust the machine-specific semif
+# paths at the bottom. Install the CLI with `npm i -g @openai/codex`; it
+# shares the desktop app's login through ~/.codex/auth.json (no re-login).
+# Verify with `lhht doctor` from the project dir.
+
+[run]
+agent = "codex"
+model = "gpt-5.6-sol"
+# Per-model efforts come from the account itself (gpt-5.6-sol: low..max
+# and ultra; gpt-5.5 stops at xhigh) — `lhht doctor` shows what is offered.
+reasoning_effort = "medium"
+env = "local"
+runs_root = "./.lhht/runs"
+prompt_language = "en"
+guard_exclude_paths = []
+max_rounds = 40
+dashboard = false
+
+[run.timeouts]
+manager = 10800
+gui_executor = 10800
+cli_executor = 10800
+auditor = 10800
+
+[run.roles.manager]
+reasoning_effort = "low"
+[run.roles.executor]
+reasoning_effort = "high"
+[run.roles.auditor]
+reasoning_effort = "high"
+
+# Per-role MCP visibility works here too (see config-claude.toml). Note:
+# codex exec loads ONLY what lhht passes — your ~/.codex/config.toml
+# servers never reach headless runs — so the lists filter exactly the
+# scorer tool (and any operator-provided TOML servers).
+
+# Semantic scorer — see config-zcode.toml for per-key commentary.
+[run.semif]
+enabled = true
+# The resident scoring server, started once per machine (`lhht server start`):
+server = "http://127.0.0.1:8790"
+# CLI alternative: any semif-score compatible executable, spawned per call
+# with its own model load (needs model/revision/gguf alongside):
+# command = "C:/path/to/semif-score.exe"
+# model = "Qwen/Qwen3.5-4B"
+# revision = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+timeout_seconds = 60
+threshold = 0.9
+auditor_fast = true
+auditor_fast_threshold = 0.95
+cross_check = true
+round_dedup = true
+effort_routing = true
+report_selection = true
+report_selection_k = 3
+# The adapter registers the tool as a -c mcp_servers override in every
+# role session; codex loads nothing else.
+mcp_tool = true
+mcp_python = "C:/path/to/semif-venv/Scripts/python.exe"            # machine-specific
+mcp_script = "C:/path/to/lhht-checkout/scripts/semif_mcp.py"  # machine-specific

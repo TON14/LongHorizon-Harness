@@ -14,18 +14,36 @@ from the v0.1.7 tag: see [`docs/upstream/README.md`](docs/upstream/README.md)
 
 ## What the fork adds
 
-- **ZCode agent backend** (`lhht run --agent zcode`): drives the headless runtime
-  bundled with the ZCode desktop app on GLM models (`glm-5.3` default,
-  `glm-5.3-flash`), with role-scoped permission modes (`plan` for the manager
-  and auditors, `yolo` for executors). The reasoning effort (`low`/`high`/`max`)
-  rides in an isolated per-run copy of ZCode's session database plus a
-  `.zcode/config.json` provider declaration written into the workspace — the
-  operator's `~/.zcode` is never touched.
-- **Reasoning effort for every backend**: on top of upstream's
-  `reasoning_effort` chain (Codex, Claude Code, OpenCode), the DeepSeek
-  Harness backend forwards the level through an `llm-deepseek` patch layer,
-  and ZCode through its session store. Per-role, verbatim, no cross-backend
-  mapping.
+- **Three production backends, one harness.** ZCode (`lhht run --agent zcode`):
+  drives the headless runtime bundled with the ZCode desktop app on GLM models
+  (`glm-5.3` default), with role-scoped permission modes and effort riding the
+  app-server session protocol. Claude Code: `claude-opus-5-5` default, five
+  explicit effort tiers. Codex: the npm CLI, which shares the desktop app's
+  login through `~/.codex` (no separate sign-in). Per-role agent/model/effort
+  mixing never translates values across backends. Battle-tested operator
+  guide for the ZCode line: [`ZCODE-RUN-GUIDE.md`](ZCODE-RUN-GUIDE.md).
+- **A local semantic scorer wired into the loop (SemIf sidecar).** A resident
+  GPU server (`lhht server start`, shared by every parallel run) answers
+  narrow classification questions by reading option probabilities straight
+  from a 4B model's logits — no text generation, ~0.1 s per decision. The
+  harness consults it at nine decision points:
+  [control-line salvage](docs/semif-salvage.md) (manager route + auditor
+  verdict headers; regex-first, never overriding a deterministic parse),
+  acceptance-none salvage, the fail-only [auditor-fast pre-gate](docs/auditor-fast.md)
+  (skips the slow auditor solely on a confident fail; can never certify
+  work), the advisory post-audit [cross-check](docs/cross-check.md),
+  [effort routing](docs/effort-routing.md) (mechanical/standard/deep →
+  low/high/max executor variants), [report selection](docs/report-selection.md),
+  [round dedup](docs/round-dedup.md), and an in-role `score` MCP tool that
+  every backend auto-registers for its roles. Every feature silently degrades
+  to plain harness behavior while the server is down; `lhht server doctor`
+  checks the whole chain, and `lhht scorer-stats <run-dir>` reports what the
+  scorer actually gave a finished run.
+- **Per-role MCP visibility.** `[run] mcp_allow` / `mcp_blocked`, replaceable
+  per role: by default everything is allowed and lhht does not interfere with
+  the agent's own server discovery; the moment a list restricts anything,
+  that role loads only the admitted servers — enforced identically on all
+  three backends (the block list always wins).
 - **Bilingual control tokens**: the manager/auditor parsers accept route
   lines and control markers in both English and Russian.
 - **A modern toolchain floor**: Python ≥ 3.14 (tomli fallbacks removed),
@@ -34,6 +52,22 @@ from the v0.1.7 tag: see [`docs/upstream/README.md`](docs/upstream/README.md)
   plus a web job (frontend core suite + typecheck) on every push and pull
   request; `release.yml` builds and verifies distributions without publishing
   (the PyPI name belongs to upstream).
+
+## Configuring
+
+`lhht init` scaffolds a `.lhht/config.toml` with the fork's battle-tested
+defaults (10800 s episode timeouts, 40 rounds, a fully commented
+`[run.semif]` section). Ready-to-copy example configs per backend live in
+[`examples/`](examples/):
+
+- [`examples/config-zcode.toml`](examples/config-zcode.toml) — GLM on the Z.ai plan
+- [`examples/config-claude.toml`](examples/config-claude.toml) — Claude Code
+- [`examples/config-codex.toml`](examples/config-codex.toml) — Codex / OpenAI
+
+Each is self-sufficient (roles, timeouts, the scorer section) and marked
+where a path is machine-specific. `lhht doctor` run from the project
+directory verifies the chosen backend; `lhht server doctor` verifies the
+scorer chain end to end.
 
 ## Installing
 
@@ -70,9 +104,9 @@ make dev-web     # Vite dev server on :5173, proxying /api
 
 The tool installs as **`lhht`** (import module and the `.lhht/` state directory keep their
 historical names). The harness is also used to develop itself: a repo-root `.lhht/config.toml`
-defines the roles (manager/executor on `glm-5.3-flash`, auditor on `glm-5.3`,
-effort `max`), and tasks run with `lhht run --task @task.md`. Agents edit
-the working tree; the operator reviews, runs `make check`, and commits.
+drives the roles on the ZCode backend with the semantic scorer enabled, and tasks run with
+`lhht run --task @task.md`. Agents edit the working tree; the operator reviews, runs
+`make check`, and commits. Feature docs live in [`docs/`](docs/).
 
 ## Credits
 

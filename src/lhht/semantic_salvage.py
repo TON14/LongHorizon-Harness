@@ -15,6 +15,7 @@ import json
 import math
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
@@ -25,7 +26,7 @@ SALVAGE_QUESTION = "Which control value does the line express?"
 
 # SemIf validates every row before scoring: nonempty string id and question,
 # nonempty state, and 2-16 options with unique string ids and descriptions
-# (D:\semif\src\semif_phase1\core.py, validate_row).
+# (SemIf's src/semif_phase1/core.py, validate_row).
 _SALVAGE_ROW_ID = "lhht-salvage"
 
 
@@ -131,7 +132,59 @@ class SemifCliScorer:
             return None
 
 
-def scorer_from_config(defaults: dict[str, Any]) -> SemifCliScorer | None:
+class SemifHttpScorer:
+    """`SemanticScorer` backed by the resident scorer server over HTTP.
+
+    ``lhht server start`` loads the model once; every decision is then a
+    single POST of one row. Any failure -- server down, non-200, malformed
+    response -- returns None instead of raising, exactly like the CLI
+    scorer, so every caller degrades identically. The server owns the
+    model: no model/revision travel with the request.
+    """
+
+    def __init__(self, url: str, *, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> None:
+        self._url = url.rstrip("/")
+        self._timeout_seconds = timeout_seconds
+
+    def score(
+        self, state: str, question: str, options: list[dict[str, str]]
+    ) -> list[float] | None:
+        if not state or not question or not 2 <= len(options) <= 16:
+            return None
+        row = {
+            "id": _SALVAGE_ROW_ID,
+            "state": state,
+            "question": question,
+            "options": options,
+        }
+        try:
+            body = json.dumps({"rows": [row]}).encode("utf-8")
+            request = urllib.request.Request(
+                self._url + "/score",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:
+                results = json.loads(response.read())["results"]
+            if not isinstance(results, list) or not results:
+                return None
+            result = results[0]
+            probabilities = result.get("probabilities")
+            if (
+                result.get("id") != row["id"]
+                or result.get("option_ids") != [o["id"] for o in options]
+                or not _valid_probabilities(probabilities, len(options))
+            ):
+                return None
+            return [float(p) for p in probabilities]
+        except Exception:
+            # The server being down is the normal degraded state; salvage
+            # must never leak that into the control-line parsers.
+            return None
+
+
+def scorer_from_config(defaults: dict[str, Any]) -> SemanticScorer | None:
     """Build the scorer an optional ``[run.semif]`` table configures.
 
     ``defaults`` is the flattened run-config mapping `lhht.config` produces:
@@ -143,6 +196,16 @@ def scorer_from_config(defaults: dict[str, Any]) -> SemifCliScorer | None:
     """
     if not defaults.get("semif_enabled"):
         return None
+    server = defaults.get("semif_server")
+    if isinstance(server, str) and server.strip():
+        # The resident server owns the model; `command` (any semif-score
+        # compatible CLI) stays the generic alternative.
+        return SemifHttpScorer(
+            server,
+            timeout_seconds=defaults.get(
+                "semif_timeout_seconds", DEFAULT_TIMEOUT_SECONDS
+            ),
+        )
     command = defaults.get("semif_command")
     model = defaults.get("semif_model")
     revision = defaults.get("semif_revision")
