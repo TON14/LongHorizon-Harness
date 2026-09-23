@@ -694,6 +694,17 @@ def _workspace_vcs_status(workspace: str, notes: list[str]) -> tuple[str, str]:
             notes.append(f"{tool} status unavailable: {exc}")
         else:
             if completed.returncode == 0:
+                stderr = completed.stderr or ""
+                # `svn status` exits 0 with a W155007 warning when the
+                # directory is not a working copy at all; an empty status
+                # from that path is not evidence of a clean workspace (it
+                # made the gate false-fail read-only rounds in plain
+                # folders), so keep looking instead of returning it.
+                if tool == "svn" and (
+                    "W155007" in stderr or "not a working copy" in stderr.lower()
+                ):
+                    notes.append("svn status: directory is not a working copy")
+                    continue
                 return completed.stdout or "", tool
             notes.append(f"{tool} status exited with code {completed.returncode}")
     return "", ""

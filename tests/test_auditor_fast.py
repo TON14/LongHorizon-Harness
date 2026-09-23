@@ -337,8 +337,43 @@ def test_vcs_unavailable_records_a_note_and_never_raises(tmp_path: Path) -> None
     assert evidence.notes, "a missing VCS must be explained by a note"
     digest = evidence.digest()
     assert digest["vcs_status_available"] is False
-    assert digest["vcs_status_line_count"] == 0
-    assert digest["executor_output_chars"] == 1
+    digest["vcs_status_line_count"] == 0
+    digest["executor_output_chars"] == 1
+
+
+def test_svn_not_a_working_copy_warning_is_not_a_clean_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # TortoiseSVN's `svn status` exits 0 with a W155007 warning outside any
+    # working copy; treating that empty stdout as a valid status once made
+    # the gate false-fail read-only rounds in plain folders (git present but
+    # not a repo -> git 128 -> svn "succeeds").
+    import subprocess as _subprocess
+
+    from lhht.auditor_fast import _workspace_vcs_status
+
+    calls: list[str] = []
+
+    class _Result:
+        def __init__(self, returncode: int, stdout: str, stderr: str):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def fake_run(argv, **kwargs):
+        tool = argv[0] if argv[0] in ("git", "svn") else str(argv[0]).rsplit("-", 1)[-1]
+        calls.append(tool)
+        if tool == "git":
+            return _Result(128, "", "fatal: not a git repository")
+        return _Result(0, "", "svn: warning: W155007: 'D:\\plain' is not a working copy")
+
+    monkeypatch.setattr(_subprocess, "run", fake_run)
+    notes: list[str] = []
+    status, tool = _workspace_vcs_status("D:\\plain", notes)
+
+    assert (status, tool) == ("", "")
+    assert "svn" in calls
+    assert any("not a working copy" in note for note in notes)
 
 
 def _git_workspace(tmp_path: Path) -> Path:
