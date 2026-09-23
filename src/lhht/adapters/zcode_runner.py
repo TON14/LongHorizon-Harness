@@ -43,6 +43,7 @@ def run(
     thought_level: str = "high",
     workspace: str,
     server_args: Sequence[str] = ("app-server", "--stdio"),
+    mcp_servers: list[dict] | None = None,
 ) -> int:
     """Bridge one episode to the ZCode Protocol app-server.
 
@@ -76,6 +77,7 @@ def run(
             thought_level=thought_level,
             mode=mode,
             content=prompt,
+            mcp_servers=mcp_servers,
         )
     except ProtocolError as exc:
         message = str(exc)
@@ -106,11 +108,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", default="yolo")
     parser.add_argument("--thought-level", default="high")
     parser.add_argument("--workspace", required=True)
+    parser.add_argument("--mcp-json", default=None,
+                        help="JSON file with stdio MCP servers for session/create")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    mcp_servers = None
+    if getattr(args, "mcp_json", None):
+        try:
+            loaded = json.loads(Path(args.mcp_json).read_text(encoding="utf-8"))
+            if isinstance(loaded, list) and loaded:
+                mcp_servers = loaded
+        except (OSError, ValueError):
+            mcp_servers = None  # a broken registration must never kill a run
     return run(
         args.binary,
         Path(args.prompt),
@@ -118,6 +130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         mode=args.mode,
         thought_level=args.thought_level,
         workspace=args.workspace,
+        mcp_servers=mcp_servers,
     )
 
 

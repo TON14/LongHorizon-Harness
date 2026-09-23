@@ -26,6 +26,9 @@ _SEMIF_KEYS = {
     "model",
     "revision",
     "gguf",
+    "mcp_tool",
+    "mcp_python",
+    "mcp_script",
     "threshold",
     "timeout_seconds",
     "auditor_fast",
@@ -321,7 +324,9 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
         raise ProjectConfigError(f"unknown [run.semif] key(s): {_names(unknown_semif)}")
     if "enabled" in semif:
         defaults["semif_enabled"] = _boolean(semif["enabled"], "run.semif.enabled")
-    for key in ("command", "model", "revision", "gguf"):
+    if "mcp_tool" in semif:
+        defaults["semif_mcp_tool"] = _boolean(semif["mcp_tool"], "run.semif.mcp_tool")
+    for key in ("command", "model", "revision", "gguf", "mcp_python", "mcp_script"):
         if key in semif:
             defaults[f"semif_{key}"] = _string(semif[key], f"run.semif.{key}")
     if "threshold" in semif:

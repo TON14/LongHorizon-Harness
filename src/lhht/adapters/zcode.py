@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -36,6 +37,42 @@ _WORKSPACE_WRITE_ROLES = {"gui_executor", "cli_executor"}
 # and the personal provider config written by `ensure_provider_config`.
 _DESKTOP_CONFIG_PATH = Path.home() / ".zcode" / "v2" / "config.json"
 _DESKTOP_PROVIDER_IDS = ("builtin:zai-coding-plan", "builtin:zai", PROVIDER_ID)
+
+
+def _semif_mcp_json(prompt_dir: str) -> str | None:
+    """Register the scorer MCP tool for role sessions when configured.
+
+    ZCode's headless app-server does not discover workspace ``.mcp.json``
+    (verified empirically); it accepts stdio MCP servers per ``session/create``.
+    When ``[run.semif] mcp_tool`` is on with ``mcp_python``/``mcp_script``
+    paths, write the server definition once per adapter into the run's prompt
+    directory and hand the runner its path. Any gap or error returns None --
+    sessions simply start without the tool.
+    """
+    try:
+        from ..config import load_run_defaults
+
+        defaults = load_run_defaults()
+        if not defaults.get("semif_mcp_tool"):
+            return None
+        python_path = defaults.get("semif_mcp_python")
+        script_path = defaults.get("semif_mcp_script")
+        if not (isinstance(python_path, str) and python_path
+                and isinstance(script_path, str) and script_path):
+            return None
+        servers = [{
+            "name": "semif-scorer",
+            "command": python_path,
+            "args": [script_path],
+            "env": [],
+            "isolation": "session",
+        }]
+        path = Path(prompt_dir) / f"mcp_servers_{uuid.uuid4().hex[:8]}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(servers), encoding="utf-8")
+        return str(path)
+    except Exception:
+        return None
 
 
 def permission_mode_for_role(role: str) -> str:
@@ -153,6 +190,9 @@ class ZCodeAdapter(CommandAgentAdapter):
         ]
         if normalized_effort:
             command += ["--thought-level", normalized_effort]
+        mcp_json_path = _semif_mcp_json(prompt_dir)
+        if mcp_json_path:
+            command += ["--mcp-json", mcp_json_path]
 
         super().__init__(
             argv=command,

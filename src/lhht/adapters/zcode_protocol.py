@@ -134,6 +134,7 @@ class _Client:
         reasoning_level: str,
         thought_level: str,
         mode: str,
+        mcp_servers: list[dict] | None = None,
         timeout: float = 90.0,
     ) -> str:
         params = {
@@ -149,6 +150,10 @@ class _Client:
             "thoughtLevel": thought_level,
             "mode": mode,
         }
+        if mcp_servers:
+            # Stdio MCP servers registered per session (the protocol schema:
+            # {name, command, args, env: [{name, value}], isolation?}).
+            params["mcpServers"] = mcp_servers
         result = self.request("session/create", params, timeout=timeout)
         session = (result or {}).get("session", {})
         session_id = session.get("sessionId")
@@ -246,6 +251,7 @@ def run_episode(
     thought_level: str,
     mode: str,
     content: str,
+    mcp_servers: list[dict] | None = None,
     timeout: float | None = None,
 ) -> dict:
     """Run one prompt through the protocol and return text/session/usage.
@@ -275,6 +281,7 @@ def run_episode(
             reasoning_level=reasoning_level,
             thought_level=thought_level,
             mode=mode,
+            mcp_servers=mcp_servers,
         )
         client.send_prompt(session_id, content)
         text, usage = client.wait_for_assistant_reply(session_id, timeout=timeout)
