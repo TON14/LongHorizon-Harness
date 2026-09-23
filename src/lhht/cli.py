@@ -795,7 +795,7 @@ def main(argv: list[str] | None = None) -> int:
         _apply_repeatable_defaults(args, run_defaults)
         if PROJECT_CONFIG_PATH.is_file():
             print(f"Using config: {PROJECT_CONFIG_PATH.resolve()}")
-        return _run_command(args)
+        return _run_command(args, run_defaults)
     if args.command == "dashboard":
         return _dashboard_command(args)
     if args.command == "web":
@@ -1552,7 +1552,8 @@ async def _run_with_attached_control(
                 raise
 
 
-def _run_command(args: argparse.Namespace) -> int:
+def _run_command(args: argparse.Namespace, run_defaults: dict[str, object] | None = None) -> int:
+    run_defaults = dict(run_defaults or {})
     # The agents work in the directory lhht was started from, so a task acts
     # on the user's real project by default. Resolve it before touching the disk:
     # every other path below is relative to it.
