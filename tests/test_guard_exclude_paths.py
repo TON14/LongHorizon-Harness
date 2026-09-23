@@ -210,7 +210,7 @@ def test_run_parses_repeatable_options_without_inheriting_the_config(monkeypatch
     monkeypatch.setattr(
         cli,
         "_run_command",
-        lambda args: captured.append((list(args.guard_exclude_path), list(args.mcp_add_dir))) or 0,
+        lambda args, run_defaults=None: captured.append((list(args.guard_exclude_path), list(args.mcp_add_dir))) or 0,
     )
 
     assert cli.main(["run", "--task=t"]) == 0
