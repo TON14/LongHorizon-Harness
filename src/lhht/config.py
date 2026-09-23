@@ -32,6 +32,8 @@ _SEMIF_KEYS = {
     "auditor_fast_threshold",
     "cross_check",
     "cross_check_threshold",
+    "round_dedup",
+    "round_dedup_threshold",
     "effort_routing",
     "effort_threshold",
     "report_selection",
@@ -353,6 +355,18 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
     if "cross_check_threshold" in semif:
         defaults["semif_cross_check_threshold"] = _threshold(
             semif["cross_check_threshold"], "run.semif.cross_check_threshold"
+        )
+    # The round-dedup repeat detector is the same kind of advisory extra: it
+    # only flags the manager re-planning the same subtask, so like the
+    # cross-check it stays silently off when the scorer is unusable rather
+    # than refusing to load.
+    if "round_dedup" in semif:
+        defaults["semif_round_dedup"] = _boolean(
+            semif["round_dedup"], "run.semif.round_dedup"
+        )
+    if "round_dedup_threshold" in semif:
+        defaults["semif_round_dedup_threshold"] = _threshold(
+            semif["round_dedup_threshold"], "run.semif.round_dedup_threshold"
         )
     # Effort routing is the same kind of optimization: picking among executor
     # adapters can wait for a usable scorer, so it too stays silently off

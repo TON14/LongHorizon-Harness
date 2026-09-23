@@ -85,6 +85,7 @@ from .report_selection import (
     select_related_reports,
     selection_record,
 )
+from .round_dedup import detect_repeat, resolve_round_dedup
 from .semantic_salvage import (
     SemanticScorer,
     _valid_probabilities,
@@ -337,6 +338,12 @@ async def _run_impl(
     # failure there is no cross-check and the loop below stays byte-for-byte
     # identical to a run without it.
     cross_check_scorer, cross_check_threshold = resolve_cross_check()
+
+    # Round-dedup repeat detector (advisory-only), resolved the same way: with
+    # the switch absent/false, no scorer configured, or any resolution failure
+    # there is no detector and the loop below stays byte-for-byte identical to
+    # a run without it.
+    round_dedup_scorer, round_dedup_threshold = resolve_round_dedup()
 
     # Effort routing for the cli executor, resolved the same way: the variants
     # arrive only when the caller could build them, and the router still
@@ -597,6 +604,26 @@ async def _run_impl(
         await _write_remote_round_text(env, config, round_index, "task_state.txt", current_task_state)
         await _write_remote_round_text(env, config, round_index, "task_contract.txt", current_task_contract)
 
+        # Round-dedup repeat detector: when [run.semif] enables it and a
+        # previous round's plan exists, the scorer compares the two plans.
+        # Purely advisory -- a confident "essentially the same work" marks the
+        # round as a possible re-planning loop in the record and as an event,
+        # and never touches routing, feedback, or the plan itself. The first
+        # round, a disabled detector, and any scorer failure leave no record.
+        round_dedup_payload: dict[str, Any] | None = None
+        if round_dedup_scorer is not None and last_plan:
+            repeat = detect_repeat(
+                round_dedup_scorer, plan_text, last_plan, round_dedup_threshold
+            )
+            if repeat is not None:
+                round_dedup_payload = repeat.payload()
+                if repeat.flagged:
+                    _append_event(
+                        events_path,
+                        "round_dedup_flag",
+                        {"round": round_index, **round_dedup_payload},
+                    )
+
         next_step = parse_role_manager_next_step(plan_text)
         last_plan = plan_text
         _append_event(
@@ -632,6 +659,7 @@ async def _run_impl(
                         task_state=current_task_state,
                         task_contract=current_task_contract,
                         related_report_refs=related_report_refs,
+                        manager_status=_with_round_dedup(None, round_dedup_payload),
                     )
                 )
                 await _record_round(env, config, role_dir, events_path, rounds[-1])
@@ -651,6 +679,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
+                manager_status=_with_round_dedup(None, round_dedup_payload),
                 auditor_status={"invalid_completion": True},
             )
             _write_local(round_dir / "harness_feedback.txt", repair_report)
@@ -670,6 +699,7 @@ async def _run_impl(
                     task_state=current_task_state,
                     task_contract=current_task_contract,
                     related_report_refs=related_report_refs,
+                    manager_status=_with_round_dedup(None, round_dedup_payload),
                 )
             )
             await _record_round(env, config, role_dir, events_path, rounds[-1])
@@ -692,6 +722,7 @@ async def _run_impl(
                     task_state=current_task_state,
                     task_contract=current_task_contract,
                     related_report_refs=related_report_refs,
+                    manager_status=_with_round_dedup(None, round_dedup_payload),
                 )
             )
             await _record_round(env, config, role_dir, events_path, rounds[-1])
@@ -711,6 +742,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
+                manager_status=_with_round_dedup(None, round_dedup_payload),
                 auditor_status={"invalid_plan": True},
             )
             _write_local(round_dir / "harness_feedback.txt", repair_report)
@@ -818,6 +850,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
+                manager_status=_with_round_dedup(None, round_dedup_payload),
                 executor_status=_routed_executor_status(
                     executor_result, effort_routing, report_selection=report_selection_payload
                 ),
@@ -847,7 +880,9 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                manager_status=_episode_status(manager_result),
+                manager_status=_with_round_dedup(
+                    _episode_status(manager_result), round_dedup_payload
+                ),
                 executor_status=_routed_executor_status(
                     executor_result,
                     effort_routing,
@@ -949,6 +984,7 @@ async def _run_impl(
                     task_state=current_task_state,
                     task_contract=current_task_contract,
                     related_report_refs=related_report_refs,
+                    manager_status=_with_round_dedup(None, round_dedup_payload),
                     executor_status=_routed_executor_status(
                         executor_result, effort_routing, report_selection=report_selection_payload
                     ),
@@ -1028,6 +1064,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
+                manager_status=_with_round_dedup(None, round_dedup_payload),
                 executor_status=_routed_executor_status(
                     executor_result, effort_routing, report_selection=report_selection_payload
                 ),
@@ -1058,7 +1095,9 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                manager_status=_episode_status(manager_result),
+                manager_status=_with_round_dedup(
+                    _episode_status(manager_result), round_dedup_payload
+                ),
                 executor_status=_routed_executor_status(
                     executor_result, effort_routing, report_selection=report_selection_payload
                 ),
@@ -1123,6 +1162,7 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
+                manager_status=_with_round_dedup(None, round_dedup_payload),
                 executor_status=_routed_executor_status(
                     executor_result, effort_routing, report_selection=report_selection_payload
                 ),
@@ -1194,6 +1234,7 @@ async def _run_impl(
             task_state=current_task_state,
             task_contract=current_task_contract,
             related_report_refs=related_report_refs,
+            manager_status=_with_round_dedup(None, round_dedup_payload),
             executor_status=_routed_executor_status(
                 executor_result, effort_routing, report_selection=report_selection_payload
             ),
@@ -2331,6 +2372,22 @@ def _failed_episode_status(result: EpisodeResult, user_message: str) -> dict[str
     status = _episode_status(result)
     status["status"] = "timeout" if result.status == "timeout" else "error"
     status["error"] = user_message
+    return status
+
+
+def _with_round_dedup(
+    status: dict[str, Any] | None, payload: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Manager episode status, carrying the round's dedup annotation.
+
+    The advisory round-dedup payload is attached only when the detector
+    actually scored a comparison, so runs with the feature off -- and rounds
+    without a previous plan or with a failed scorer -- serialize exactly
+    today's status.
+    """
+    status = status or {}
+    if payload:
+        status = {**status, "round_dedup": payload}
     return status
 
 

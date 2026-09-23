@@ -28,6 +28,8 @@ FULL_SEMIF_TABLE = {
     "auditor_fast_threshold": 0.95,
     "cross_check": True,
     "cross_check_threshold": 0.9,
+    "round_dedup": True,
+    "round_dedup_threshold": 0.9,
     "effort_routing": True,
     "effort_threshold": 0.9,
     "report_selection": True,
@@ -42,6 +44,7 @@ def test_full_semif_table_flattens():
         "semif_enabled",
         "semif_auditor_fast",
         "semif_cross_check",
+        "semif_round_dedup",
         "semif_effort_routing",
         "semif_report_selection",
     ):
@@ -92,11 +95,19 @@ def test_manager_side_resolvers_accept_the_battle_config(monkeypatch):
     monkeypatch.setattr(
         "lhht.role_prompts.load_run_defaults", lambda: defaults
     )
+    # The round-dedup resolver lives in its own module, so it needs its own
+    # patch: unlike the gate/cross-check it is smoke-booted from the flattened
+    # battle config rather than the project's on-disk table.
+    monkeypatch.setattr(
+        "lhht.round_dedup.load_run_defaults", lambda: defaults
+    )
     # Fresh lazy caches, then resolve everything the loop would resolve.
     auditor_agent._PROJECT_SALVAGE_SETTINGS.pop("settings", None)
     role_prompts._ROUTE_SALVAGE_SETTINGS.pop("settings", None)
     scorer, gate_threshold = manager.resolve_fast_gate()
     assert scorer is not None and gate_threshold == 0.95
+    dedup_scorer, dedup_threshold = manager.resolve_round_dedup()
+    assert dedup_scorer is not None and dedup_threshold == 0.9
     if hasattr(manager, "_resolve_effort_router_settings"):
         manager._resolve_effort_router_settings.cache_clear() if hasattr(manager._resolve_effort_router_settings, "cache_clear") else None
     # resolve_effort_router(variants, default_effort) is exercised by the
