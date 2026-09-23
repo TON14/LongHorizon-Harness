@@ -146,6 +146,19 @@ def test_effort_discovery_falls_back_to_declared_tiers_when_help_is_unparsable(
     assert reasoning_choices(spec, probes["claude_code"]) == spec.reasoning.declared_choices
 
 
+def test_claude_offers_only_the_five_explicit_effort_tiers() -> None:
+    # 2.1.280's interactive /effort picker also shows ultracode and auto; the
+    # fork deliberately offers just the five explicit tiers (auto is rejected
+    # by the --effort flag with a warning and silently falls back to default).
+    assert agent_spec("claude_code").reasoning.declared_choices == (
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    )
+
+
 def test_deepseek_declares_the_patch_layer_effort_switch() -> None:
     assert supports_reasoning_effort("deepseek_harness") is True
     reasoning = agent_spec("deepseek_harness").reasoning

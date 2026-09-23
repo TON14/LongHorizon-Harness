@@ -82,6 +82,9 @@ AGENT_SPECS: tuple[AgentSpec, ...] = (
             flag="--effort",
             scope="per_agent",
             source="cli_help",
+            # 2.1.280's interactive /effort picker also shows ultracode and
+            # auto; we deliberately offer only these five explicit tiers
+            # (auto is rejected by the flag with a warning outright).
             declared_choices=("low", "medium", "high", "xhigh", "max"),
             validation="silently_ignored",
         ),
