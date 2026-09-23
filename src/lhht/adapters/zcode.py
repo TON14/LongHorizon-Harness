@@ -51,19 +51,15 @@ def _semif_mcp_json(prompt_dir: str) -> str | None:
     """
     try:
         from ..config import load_run_defaults
+        from ..semif_mcp import SERVER_NAME, semif_mcp_command
 
-        defaults = load_run_defaults()
-        if not defaults.get("semif_mcp_tool"):
-            return None
-        python_path = defaults.get("semif_mcp_python")
-        script_path = defaults.get("semif_mcp_script")
-        if not (isinstance(python_path, str) and python_path
-                and isinstance(script_path, str) and script_path):
+        command = semif_mcp_command(load_run_defaults())
+        if command is None:
             return None
         servers = [{
-            "name": "semif-scorer",
-            "command": python_path,
-            "args": [script_path],
+            "name": SERVER_NAME,
+            "command": command[0],
+            "args": command[1],
             "env": [],
             "isolation": "session",
         }]

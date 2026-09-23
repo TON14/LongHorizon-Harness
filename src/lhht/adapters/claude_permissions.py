@@ -39,7 +39,11 @@ def policy_for_role(role: str) -> ClaudeRolePolicy:
     """
     if role in {"manager", "final_response"}:
         # The reply role only rewrites evidence it is given, so it needs no tools
-        # at all; it shares the manager's no-side-effect deny list.
+        # at all; it shares the manager's no-side-effect deny list. MCP servers
+        # are NOT denied here: per-role visibility is the operator's call via
+        # [run] mcp_allow/mcp_blocked (defaults: everything allowed), and a
+        # blanket "mcp__*" deny would block even the harness's read-only
+        # scorer tool.
         return ClaudeRolePolicy(
             role=role,
             permission_mode="bypassPermissions",
@@ -47,7 +51,6 @@ def policy_for_role(role: str) -> ClaudeRolePolicy:
                 "Bash",
                 *_WRITE_TOOLS,
                 "Agent",
-                "mcp__*",
             ),
             workspace_read_only=True,
         )

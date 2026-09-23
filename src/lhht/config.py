@@ -60,6 +60,8 @@ _RUN_KEYS = {
     "claude_allowed_plugins",
     "claude_allowed_skills",
     "mcp_add_dirs",
+    "mcp_allow",
+    "mcp_blocked",
     "guard_exclude_paths",
     "guard_exclude_git",
     "max_rounds",
@@ -108,6 +110,19 @@ prompt_language = "en"
 # codex_mcp_config = "/path/to/mcp.toml"
 mcp_add_dirs = []
 
+# Per-role MCP server visibility (Claude Code backend). Defaults: everything
+# allowed, nothing blocked -- claude discovers the operator's own servers
+# untouched. Server names are the middle segment of a tool (mcp__<server>__<tool>).
+# Naming servers in mcp_allow restricts a role to exactly those; mcp_blocked
+# hides specific ones (and wins over mcp_allow). Whenever a role's lists
+# restrict anything, that role loads ONLY the admitted servers.
+# mcp_allow = ["*"]                      # every role (the default)
+# mcp_blocked = []                       # nothing hidden (the default)
+# [run.roles.manager]
+# mcp_allow = ["semif-scorer"]           # planner: read-only scorer only
+# [run.roles.cli_auditor]
+# mcp_blocked = ["playwright"]           # hide one server from one role
+
 # Start Claude Code agents without this account's own plugins, skills, hooks
 # and user-level CLAUDE.md, so an operator's toolbox cannot leak into runs
 # that never asked for it. The CLI's built-in skills stay available. The
@@ -132,7 +147,9 @@ guard_exclude_paths = []
 # otherwise invalidate an open audit window.
 # guard_exclude_git = true
 
-max_rounds = 25
+# Real episodes run 10-40+ minutes; the upstream default of 25 rounds cuts
+# long-horizon work off mid-flight.
+max_rounds = 40
 dashboard = true
 # Embedded dashboards use an OS-assigned port by default so concurrent runs
 # cannot accidentally share or race a fixed listener. Standalone `web` keeps
@@ -140,10 +157,12 @@ dashboard = true
 dashboard_port = 0
 
 [run.timeouts]
-manager = 300
-gui_executor = 1800
-cli_executor = 1800
-auditor = 300
+# Per-episode wall clocks. Real episodes go 10-40+ minutes; the upstream
+# 300/1800-second defaults time out healthy work mid-flight.
+manager = 10800
+gui_executor = 10800
+cli_executor = 10800
+auditor = 10800
 
 [run.roles.manager]
 # agent = "codex"
@@ -178,6 +197,40 @@ auditor = 300
 [run.roles.final_response]
 # agent = "codex"
 # model = "gpt-5.6-sol"
+
+# Semantic scorer (SemIf sidecar) integration. Everything below is off until
+# you write the section: lhht never touches a scorer unless `[run.semif]
+# enabled = true`, and every scorer feature silently degrades to plain-harness
+# behavior when the resident server is down. Diagnose the whole chain with
+# `lhht server doctor`; start the shared GPU server with `lhht server start`.
+#
+# [run.semif]
+# enabled = true
+# # semif-score-compatible CLI (or the lhht shim that forwards to the server):
+# command = "D:/lhht/scripts/semif_shim.bat"
+# model = "Qwen/Qwen3.5-4B"
+# revision = "<exact HF revision of the model>"
+# # gguf = "D:/path/to/model.gguf"        # llamacpp backend instead of torch
+# threshold = 0.9
+# timeout_seconds = 60
+# # In-role `score` MCP tool: adapters register the stdio server themselves
+# # (ZCode through the session protocol, Claude Code through --mcp-config);
+# # no per-project .mcp.json is needed anywhere.
+# mcp_tool = true
+# mcp_python = "D:/semif/.venv/Scripts/python.exe"
+# mcp_script = "D:/lhht/scripts/semif_mcp.py"
+# # Fail-only pre-gate that skips the slow auditor on confident passes:
+# auditor_fast = true
+# auditor_fast_threshold = 0.95
+# # Advisory second opinion recorded next to auditor verdicts:
+# cross_check = true
+# # Flags the manager re-planning the same subtask round after round:
+# round_dedup = true
+# # Binds executor effort (low/high/max) to the scorer's task classification:
+# effort_routing = true
+# # Keeps round prompts to the k most relevant past audit reports:
+# report_selection = true
+# report_selection_k = 3
 """
 
 
@@ -269,6 +322,15 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
             raise ProjectConfigError("run.mcp_add_dirs must be an array of non-empty strings")
         defaults["mcp_add_dir"] = list(value)
+    # Per-role MCP visibility. Defaults (["*"] / []) leave claude's own
+    # server discovery untouched; naming servers restricts a role to the
+    # allow-list minus the block-list (enforced by the adapter).
+    if "mcp_allow" in run:
+        defaults["mcp_allow"] = _mcp_list(run["mcp_allow"], "run.mcp_allow", is_allow=True)
+    if "mcp_blocked" in run:
+        defaults["mcp_blocked"] = _mcp_list(
+            run["mcp_blocked"], "run.mcp_blocked", is_allow=False
+        )
     if "guard_exclude_git" in run:
         defaults["guard_exclude_git"] = _boolean(run["guard_exclude_git"], "run.guard_exclude_git")
     if "guard_exclude_paths" in run:
@@ -286,11 +348,24 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
     for role, values in roles.items():
         if not isinstance(values, dict):
             raise ProjectConfigError(f"[run.roles.{role}] must be a TOML table")
-        unknown_role_keys = set(values) - {"agent", "model", "reasoning_effort"}
+        unknown_role_keys = set(values) - {
+            "agent",
+            "model",
+            "reasoning_effort",
+            "mcp_allow",
+            "mcp_blocked",
+        }
         if unknown_role_keys:
             raise ProjectConfigError(
                 f"unknown [run.roles.{role}] key(s): {_names(unknown_role_keys)}"
             )
+        for list_key in ("mcp_allow", "mcp_blocked"):
+            if list_key in values:
+                defaults[f"{role}_{list_key}"] = _mcp_list(
+                    values[list_key],
+                    f"run.roles.{role}.{list_key}",
+                    is_allow=list_key == "mcp_allow",
+                )
         if "agent" in values:
             defaults[f"{role}_agent"] = _choice(
                 values["agent"], f"run.roles.{role}.agent", _AGENT_CHOICES
@@ -457,6 +532,22 @@ def _boolean(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise ProjectConfigError(f"{name} must be true or false")
     return value
+
+
+def _mcp_list(value: Any, name: str, *, is_allow: bool) -> list[str]:
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise ProjectConfigError(f"{name} must be an array of non-empty server names")
+    items = list(value)
+    if "*" in items:
+        if not is_allow:
+            raise ProjectConfigError(
+                f"{name} may not contain '*' (it only means anything in mcp_allow)"
+            )
+        if items != ["*"]:
+            raise ProjectConfigError(f'{name} with \'*\' must be exactly ["*"]')
+    return items
 
 
 def _threshold(value: Any, name: str) -> float:
