@@ -54,3 +54,4 @@ env.local.sh
 .idea/
 .vscode/
 .lhht-quickstart/
+scorer-server-*.log
