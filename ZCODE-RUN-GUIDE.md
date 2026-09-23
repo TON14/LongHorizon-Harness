@@ -196,7 +196,7 @@ schtasks /run /tn "lh_night_run"
    (например `→`) роняет `zcode_runner._emit_result`. Лечится
    `set PYTHONUTF8=1` и `set PYTHONIOENCODING=utf-8` до запуска lhht.
 
-Боевая обёртка (проверена 21.09.2026, прогон `night-run-5`):
+Боевая обёртка (проверена 21.09.2026 на реальном ночном прогоне):
 
 ```bat
 @echo off
