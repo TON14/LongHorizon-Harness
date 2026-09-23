@@ -30,6 +30,8 @@ _SEMIF_KEYS = {
     "timeout_seconds",
     "auditor_fast",
     "auditor_fast_threshold",
+    "cross_check",
+    "cross_check_threshold",
     "effort_routing",
     "effort_threshold",
     "report_selection",
@@ -339,6 +341,18 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
     if "auditor_fast_threshold" in semif:
         defaults["semif_auditor_fast_threshold"] = _threshold(
             semif["auditor_fast_threshold"], "run.semif.auditor_fast_threshold"
+        )
+    # The post-audit verdict cross-check is advisory-only: it records a
+    # second opinion next to the auditor's verdicts and never changes them,
+    # so like the gate it stays silently off when the scorer is unusable
+    # rather than refusing to load.
+    if "cross_check" in semif:
+        defaults["semif_cross_check"] = _boolean(
+            semif["cross_check"], "run.semif.cross_check"
+        )
+    if "cross_check_threshold" in semif:
+        defaults["semif_cross_check_threshold"] = _threshold(
+            semif["cross_check_threshold"], "run.semif.cross_check_threshold"
         )
     # Effort routing is the same kind of optimization: picking among executor
     # adapters can wait for a usable scorer, so it too stays silently off

@@ -71,8 +71,10 @@ from .auditor_agent import (
 )
 from .auditor_fast import (
     RoundContext,
+    cross_check,
     gate_report_text,
     gather_gate_evidence,
+    resolve_cross_check,
     resolve_fast_gate,
     run_gate,
 )
@@ -329,6 +331,12 @@ async def _run_impl(
     # scorer configured, or any resolution failure there is no scorer and the
     # loop below stays byte-for-byte identical to a run without the gate.
     fast_gate_scorer, fast_gate_threshold = resolve_fast_gate()
+
+    # Post-audit verdict cross-check (advisory-only), resolved the same way:
+    # with the switch absent/false, no scorer configured, or any resolution
+    # failure there is no cross-check and the loop below stays byte-for-byte
+    # identical to a run without it.
+    cross_check_scorer, cross_check_threshold = resolve_cross_check()
 
     # Effort routing for the cli executor, resolved the same way: the variants
     # arrive only when the caller could build them, and the router still
@@ -1142,6 +1150,41 @@ async def _run_impl(
             # the auditor's so later analysis can compare the two decisions.
             auditor_status = {**auditor_status, "auditor_fast_gate": fast_gate_payload}
 
+        # The parse is pure over the report text, so it runs before the round
+        # record is built: the cross-check below compares the scorer's answers
+        # against these parsed verdicts and must attach its record before
+        # _record_round persists it into rounds.jsonl.
+        audit = parse_audit_report(auditor_report, round_index, language=config.prompt_language)
+
+        # Post-audit verdict cross-check: when [run.semif] enables it, the
+        # scorer independently answers the same three control verdicts against
+        # the same live evidence the pre-gate gathers. Purely advisory: a
+        # confident disagreement is recorded on the round and surfaced as an
+        # event for the operator, and it never modifies the auditor's
+        # verdicts, the role_done flow, routing, or completion acceptance.
+        if cross_check_scorer is not None:
+            cross_evidence = gather_gate_evidence(
+                config,
+                RoundContext(
+                    plan_text=plan_text,
+                    executor_output=executor_output,
+                    task_contract=current_task_contract,
+                    guard_exclude_paths=tuple(guard_exclude_paths),
+                ),
+            )
+            cross_result = cross_check(
+                cross_check_scorer, cross_evidence, audit, cross_check_threshold
+            )
+            if cross_result is not None:
+                cross_payload = cross_result.payload()
+                auditor_status = {**auditor_status, "auditor_cross_check": cross_payload}
+                if cross_result.flagged:
+                    _append_event(
+                        events_path,
+                        "auditor_cross_check",
+                        {"round": round_index, **cross_payload},
+                    )
+
         record = ManagedRound(
             round_index=round_index,
             next_step=next_step,
@@ -1168,7 +1211,6 @@ async def _run_impl(
                 **_episode_event_fields(auditor_result, event_status="completed"),
             },
         )
-        audit = parse_audit_report(auditor_report, round_index, language=config.prompt_language)
         emit(
             "role_done",
             round=round_index,
