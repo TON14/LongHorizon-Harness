@@ -745,6 +745,19 @@ def main(argv: list[str] | None = None) -> int:
 
     add_command("doctor", "Check the local environment and report computer-use plugin state")
 
+    stats_parser = add_command(
+        "scorer-stats", "Summarize what the scorer did in one finished run"
+    )
+    stats_parser.add_argument(
+        "run_dir",
+        help="Finished run directory (<runs-root>/<run-id>).",
+    )
+    stats_parser.add_argument(
+        "--fixture",
+        default="data/semif-fixture.jsonl",
+        help="SemIf fixture JSONL to append the run's mined control lines to (dedup by id; empty skips).",
+    )
+
     plugin_parser = add_command("plugin", "Install or remove computer-use plugins")
     plugin_actions = plugin_parser.add_subparsers(dest="plugin_command")
     for action, help_text in (
@@ -802,6 +815,8 @@ def main(argv: list[str] | None = None) -> int:
         return _web_command(args)
     if args.command == "doctor":
         return _doctor_command()
+    if args.command == "scorer-stats":
+        return _scorer_stats_command(args)
     if args.command == "plugin":
         if not args.plugin_command:
             plugin_parser.print_help()
@@ -1062,6 +1077,29 @@ def _doctor_active_plugins() -> int:
             f"{plugin_id} ({config or 'loaded natively by the agent'})",
         )
     return warnings
+
+
+def _scorer_stats_command(args: argparse.Namespace) -> int:
+    from .scorer_stats import render_summary, summarize_run
+
+    try:
+        summary = summarize_run(args.run_dir)
+    except (OSError, ValueError) as exc:
+        print(f"Cannot summarize run: {exc}", file=sys.stderr)
+        return 2
+    print(render_summary(summary))
+    fixture_path = str(getattr(args, "fixture", "") or "")
+    if not fixture_path:
+        return 0
+    from .scorer_stats import append_fixture_rows, mine_fixture_rows
+
+    try:
+        added = append_fixture_rows(mine_fixture_rows(args.run_dir), fixture_path)
+    except (OSError, ValueError) as exc:
+        print(f"Fixture update failed: {exc}", file=sys.stderr)
+        return 2
+    print(f"Fixture rows added: {added} ({fixture_path})")
+    return 0
 
 
 def _plugin_command(args: argparse.Namespace) -> int:
