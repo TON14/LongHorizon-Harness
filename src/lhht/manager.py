@@ -77,6 +77,12 @@ from .auditor_fast import (
     run_gate,
 )
 from .config import load_run_defaults
+from .report_selection import (
+    report_candidates,
+    resolve_report_selector,
+    select_related_reports,
+    selection_record,
+)
 from .semantic_salvage import (
     SemanticScorer,
     _valid_probabilities,
@@ -333,6 +339,12 @@ async def _run_impl(
         language=config.prompt_language,
     )
     effort_memos: dict[int, tuple[str | None, dict[str, Any]]] = {}
+
+    # Report selection ranks which past audit reports ride along in the
+    # round's prompts, resolved the same way: with the switch absent/false,
+    # no scorer configured, or any resolution failure there is no selector
+    # and the loop below stays byte-for-byte identical to a run without it.
+    report_selector = resolve_report_selector()
 
     await _ensure_remote_layout(env, config)
 
@@ -714,9 +726,29 @@ async def _run_impl(
             effort_memos=effort_memos,
         )
         auditor_for_step = gui_auditor_agent if next_step == MANAGER_NEXT_GUI else cli_auditor_agent
+        # Report selection, when [run.semif] enables it, ranks the available
+        # past audit reports against this round's plan BEFORE formatting:
+        # explicit references always survive, the scorer only decides which
+        # unreferenced reports join them (top-K by P(relevant)).
+        prompt_report_refs = related_report_refs
+        report_selection_payload: dict[str, Any] | None = None
+        if report_selector is not None:
+            selection = select_related_reports(
+                report_selector,
+                plan_text,
+                report_candidates(rounds),
+                related_report_refs,
+            )
+            prompt_report_refs = [candidate.id for candidate in selection.kept]
+            report_selection_payload = selection_record(
+                selection,
+                refs=related_report_refs,
+                k=report_selector.k,
+                threshold=report_selector.threshold,
+            )
         related_auditor_reports = format_related_auditor_reports(
             rounds,
-            related_report_refs,
+            prompt_report_refs,
             max_chars=config.role_verified_context_chars,
             language=config.prompt_language,
         )
@@ -778,7 +810,9 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                executor_status=_routed_executor_status(executor_result, effort_routing),
+                executor_status=_routed_executor_status(
+                    executor_result, effort_routing, report_selection=report_selection_payload
+                ),
             )
             rounds.append(record)
             await _record_round(env, config, role_dir, events_path, record)
@@ -807,7 +841,10 @@ async def _run_impl(
                 related_report_refs=related_report_refs,
                 manager_status=_episode_status(manager_result),
                 executor_status=_routed_executor_status(
-                    executor_result, effort_routing, executor_failure.user_message
+                    executor_result,
+                    effort_routing,
+                    executor_failure.user_message,
+                    report_selection=report_selection_payload,
                 ),
             )
             _write_local(round_dir / "harness_feedback.txt", executor_failure.user_message)
@@ -904,7 +941,9 @@ async def _run_impl(
                     task_state=current_task_state,
                     task_contract=current_task_contract,
                     related_report_refs=related_report_refs,
-                    executor_status=_routed_executor_status(executor_result, effort_routing),
+                    executor_status=_routed_executor_status(
+                        executor_result, effort_routing, report_selection=report_selection_payload
+                    ),
                     auditor_status={
                         "status": "skipped_by_fast_gate",
                         "audit_status": "incomplete",
@@ -981,7 +1020,9 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                executor_status=_routed_executor_status(executor_result, effort_routing),
+                executor_status=_routed_executor_status(
+                    executor_result, effort_routing, report_selection=report_selection_payload
+                ),
                 auditor_status=_episode_status(auditor_result),
             )
             rounds.append(record)
@@ -1010,7 +1051,9 @@ async def _run_impl(
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
                 manager_status=_episode_status(manager_result),
-                executor_status=_routed_executor_status(executor_result, effort_routing),
+                executor_status=_routed_executor_status(
+                    executor_result, effort_routing, report_selection=report_selection_payload
+                ),
                 auditor_status=_failed_episode_status(
                     auditor_result, auditor_failure.user_message
                 ),
@@ -1072,7 +1115,9 @@ async def _run_impl(
                 task_state=current_task_state,
                 task_contract=current_task_contract,
                 related_report_refs=related_report_refs,
-                executor_status=_routed_executor_status(executor_result, effort_routing),
+                executor_status=_routed_executor_status(
+                    executor_result, effort_routing, report_selection=report_selection_payload
+                ),
                 auditor_status=auditor_status,
             )
             rounds.append(record)
@@ -1106,7 +1151,9 @@ async def _run_impl(
             task_state=current_task_state,
             task_contract=current_task_contract,
             related_report_refs=related_report_refs,
-            executor_status=_routed_executor_status(executor_result, effort_routing),
+            executor_status=_routed_executor_status(
+                executor_result, effort_routing, report_selection=report_selection_payload
+            ),
             auditor_status=auditor_status,
         )
         rounds.append(record)
@@ -2249,11 +2296,13 @@ def _routed_executor_status(
     result: EpisodeResult,
     routing: dict[str, Any],
     failure_message: str | None = None,
+    report_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Executor episode status, carrying the round's effort-routing decision.
+    """Executor episode status, carrying the round's prompt-shaping decisions.
 
-    The routing payload is attached only when routing actually decided
-    something, so runs with routing off serialize exactly today's status.
+    The effort-routing and report-selection payloads are attached only when
+    they actually decided something, so runs with the features off serialize
+    exactly today's status.
     """
     status = (
         _failed_episode_status(result, failure_message)
@@ -2262,6 +2311,8 @@ def _routed_executor_status(
     )
     if routing:
         status["effort_routing"] = routing
+    if report_selection:
+        status["report_selection"] = report_selection
     return status
 
 

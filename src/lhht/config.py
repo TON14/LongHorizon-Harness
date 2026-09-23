@@ -32,6 +32,9 @@ _SEMIF_KEYS = {
     "auditor_fast_threshold",
     "effort_routing",
     "effort_threshold",
+    "report_selection",
+    "report_selection_k",
+    "report_selection_threshold",
 }
 _RUN_KEYS = {
     "agent",
@@ -347,6 +350,23 @@ def _flatten_run_table(run: dict[str, Any]) -> dict[str, Any]:
     if "effort_threshold" in semif:
         defaults["semif_effort_threshold"] = _threshold(
             semif["effort_threshold"], "run.semif.effort_threshold"
+        )
+    # Report selection is the same kind of optimization: ranking which past
+    # audit reports ride along in the round's prompts can wait for a usable
+    # scorer, so it too stays silently off when the scorer is not configured
+    # rather than refusing to load.
+    if "report_selection" in semif:
+        defaults["semif_report_selection"] = _boolean(
+            semif["report_selection"], "run.semif.report_selection"
+        )
+    if "report_selection_k" in semif:
+        defaults["semif_report_selection_k"] = _positive_int(
+            semif["report_selection_k"], "run.semif.report_selection_k"
+        )
+    if "report_selection_threshold" in semif:
+        defaults["semif_report_selection_threshold"] = _threshold(
+            semif["report_selection_threshold"],
+            "run.semif.report_selection_threshold",
         )
     if defaults.get("semif_enabled"):
         missing = [
