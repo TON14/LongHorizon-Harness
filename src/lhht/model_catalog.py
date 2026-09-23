@@ -223,7 +223,10 @@ def _discover_codex_models(
 
 def _discover_claude_models(binary: str | None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     recent = _recent_claude_models()
-    ids = [DEFAULT_CLAUDE_MODEL, "opus", "sonnet", "haiku", *recent]
+    # All current-generation ids verified live against Claude Code 2.1.280
+    # (2026-09-23); the aliases resolve to the CLI's current generation too.
+    ids = [DEFAULT_CLAUDE_MODEL, "claude-fable-5-1", "claude-sonnet-5",
+           "claude-haiku-4-5", "opus", "sonnet", "haiku", *recent]
     models: list[dict[str, Any]] = []
     seen: set[str] = set()
     for model_id in ids:

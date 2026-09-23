@@ -28,7 +28,10 @@ DEFAULT_HARNESS_DIR = f"{DEFAULT_STATE_ROOT}/harness"
 DEFAULT_LOG_DIR = f"{DEFAULT_STATE_ROOT}/lhht"
 DEFAULT_TMP_DIR = f"{DEFAULT_STATE_ROOT}/tmp"
 
-DEFAULT_CLAUDE_MODEL = "claude-opus-5"
+# Claude Code 2.1.280 picker (2026-09-23): Opus 5.5 (1M) is the default;
+# Fable 5.1 tops the lineup, Sonnet 5 and Haiku 4.5 fill it out. All four
+# ids verified live with one-word replies.
+DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
 DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
 DEFAULT_DEEPSEEK_HARNESS_MODEL = "deepseek-v4-flash"
 DEFAULT_OPENCODE_MODEL = "opencode/deepseek-v4-flash-free"

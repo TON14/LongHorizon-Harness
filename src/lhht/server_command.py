@@ -22,6 +22,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -83,7 +84,10 @@ def _start_command(args: argparse.Namespace) -> int:
         argv += ["--revision", args.revision]
     if args.gguf:
         argv += ["--backend", "llamacpp", "--gguf", args.gguf]
-    log_path = Path(f"scorer-server-{args.port}.log")
+    # The log lives outside any workspace by default: a file the server
+    # keeps appending to would trip the auditor's workspace-mutation guard
+    # in every run sharing that directory.
+    log_path = Path(tempfile.gettempdir()) / f"scorer-server-{args.port}.log"
     creationflags = 0
     if sys.platform == "win32":
         creationflags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
