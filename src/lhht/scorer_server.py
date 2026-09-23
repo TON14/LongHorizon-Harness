@@ -165,7 +165,8 @@ def main():
     p.add_argument("--revision",
                    default="851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a")
     p.add_argument("--gguf",
-                   default=r"D:\semif\models\Qwen_Qwen3.5-4B-Q4_K_M.gguf")
+                   default=None,
+                   help="GGUF checkpoint; required for the llamacpp backend")
     p.add_argument("--threads", type=int, default=None)
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
