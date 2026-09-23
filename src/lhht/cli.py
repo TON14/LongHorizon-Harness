@@ -758,6 +758,13 @@ def main(argv: list[str] | None = None) -> int:
         help="SemIf fixture JSONL to append the run's mined control lines to (dedup by id; empty skips).",
     )
 
+    server_parser = add_command(
+        "server",
+        "Explicitly start/stop/status the resident scorer server "
+        "(runs never start it themselves)",
+    )
+    server_parser.add_argument("server_argv", nargs=argparse.REMAINDER)
+
     plugin_parser = add_command("plugin", "Install or remove computer-use plugins")
     plugin_actions = plugin_parser.add_subparsers(dest="plugin_command")
     for action, help_text in (
@@ -817,6 +824,10 @@ def main(argv: list[str] | None = None) -> int:
         return _doctor_command()
     if args.command == "scorer-stats":
         return _scorer_stats_command(args)
+    if args.command == "server":
+        from .server_command import server_command
+
+        return server_command(args.server_argv)
     if args.command == "plugin":
         if not args.plugin_command:
             plugin_parser.print_help()
@@ -1592,6 +1603,20 @@ async def _run_with_attached_control(
 
 def _run_command(args: argparse.Namespace, run_defaults: dict[str, object] | None = None) -> int:
     run_defaults = dict(run_defaults or {})
+    if run_defaults.get("semif_enabled"):
+        # Report, never act: the harness only uses a healthy scorer server,
+        # it never starts or stops one (that is `lhht server start`).
+        from .server_command import _health
+
+        port = 8790
+        health = _health(port, timeout=1.0)
+        if health is None:
+            print(f"Scorer server: NOT reachable on 127.0.0.1:{port} -- "
+                  "salvage/gate/router features run disabled "
+                  "(start it with `lhht server start`)")
+        else:
+            print(f"Scorer server: reachable on 127.0.0.1:{port} "
+                  f"(backend={health.get('backend')})")
     # The agents work in the directory lhht was started from, so a task acts
     # on the user's real project by default. Resolve it before touching the disk:
     # every other path below is relative to it.

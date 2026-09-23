@@ -74,6 +74,7 @@ def _load(args: argparse.Namespace):
     _STATE["score_fn"] = score
     _STATE["shared_fn"] = shared_score
     _STATE["backend"] = args.backend
+    _STATE["model"] = args.model
 
 
 def _score_rows(rows: list) -> list:
@@ -125,11 +126,16 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._json(200, {"ok": _STATE["score_fn"] is not None,
                              "backend": _STATE["backend"],
+                             "model": _STATE.get("model"),
                              "scored": _STATE["scored"]})
         else:
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path == "/shutdown":
+            self._json(200, {"ok": True})
+            threading.Thread(target=_STATE["httpd"].shutdown, daemon=True).start()
+            return
         if self.path != "/score":
             self._json(404, {"error": "not found"})
             return
@@ -172,7 +178,9 @@ def main():
     print(f"model ready in {time.perf_counter()-t0:.1f}s; "
           f"serving on http://{args.host}:{args.port}", flush=True)
 
-    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    _STATE["httpd"] = httpd
+    httpd.serve_forever()
 
 
 if __name__ == "__main__":
